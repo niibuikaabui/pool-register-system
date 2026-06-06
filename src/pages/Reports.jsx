@@ -17,6 +17,7 @@ function getBusinessDate(datetimeStr, businessStartTime) {
 export default function Reports() {
   const [tab, setTab] = useState('daily')
   const [sessions, setSessions] = useState([])
+  const [cancelledItems, setCancelledItems] = useState([])
   const [shopSettings, setShopSettings] = useState(null)
   const [loading, setLoading] = useState(true)
   const [selectedMonth, setSelectedMonth] = useState(() => new Date().toISOString().slice(0, 7))
@@ -41,7 +42,6 @@ export default function Reports() {
     if (tab === 'daily') {
       from = new Date(`${selectedDate}T00:00:00`)
       to = new Date(`${selectedDate}T23:59:59`)
-      // Extend to capture late-night sessions
       from.setHours(0, 0, 0, 0)
       to.setDate(to.getDate() + 1)
       to.setHours(23, 59, 59, 999)
@@ -51,15 +51,25 @@ export default function Reports() {
       to.setMonth(to.getMonth() + 1)
     }
 
-    const { data } = await supabase
-      .from('sessions')
-      .select('*')
-      .eq('is_paid', true)
-      .gte('ended_at', from.toISOString())
-      .lt('ended_at', to.toISOString())
-      .order('ended_at')
+    const [{ data: sess }, { data: cancelled }] = await Promise.all([
+      supabase
+        .from('sessions')
+        .select('*')
+        .eq('is_paid', true)
+        .gte('ended_at', from.toISOString())
+        .lt('ended_at', to.toISOString())
+        .order('ended_at'),
+      supabase
+        .from('order_items')
+        .select('*, menu_items(name), sessions(table_id, tables(table_number))')
+        .not('cancelled_at', 'is', null)
+        .gte('cancelled_at', from.toISOString())
+        .lt('cancelled_at', to.toISOString())
+        .order('cancelled_at', { ascending: false }),
+    ])
 
-    setSessions(data || [])
+    setSessions(sess || [])
+    setCancelledItems(cancelled || [])
     setLoading(false)
   }
 
@@ -240,6 +250,50 @@ export default function Reports() {
           {displayDates.length === 0 && (
             <div className="text-center py-10 text-gray-400">データがありません</div>
           )}
+
+          {/* キャンセル履歴 */}
+          <div className="bg-white rounded-xl shadow-sm overflow-hidden mt-4">
+            <div className="px-4 py-3 border-b flex items-center justify-between">
+              <h3 className="font-semibold text-gray-700">キャンセル履歴</h3>
+              {cancelledItems.length > 0 && (
+                <span className="text-sm text-red-500 font-medium">
+                  合計 ¥{cancelledItems.reduce((s, i) => s + i.unit_price * i.quantity, 0).toLocaleString()} ({cancelledItems.length}件)
+                </span>
+              )}
+            </div>
+            {cancelledItems.length === 0 ? (
+              <div className="text-center py-6 text-gray-400 text-sm">キャンセルはありません</div>
+            ) : (
+              <table className="w-full text-sm">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="text-left px-4 py-2 text-gray-600">キャンセル日時</th>
+                    <th className="text-left px-3 py-2 text-gray-600">台</th>
+                    <th className="text-left px-3 py-2 text-gray-600">商品</th>
+                    <th className="text-right px-4 py-2 text-gray-600">金額</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y">
+                  {cancelledItems.map(item => (
+                    <tr key={item.id} className="hover:bg-red-50">
+                      <td className="px-4 py-2 text-gray-500">
+                        {new Date(item.cancelled_at).toLocaleString('ja-JP', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                      </td>
+                      <td className="px-3 py-2 text-gray-500">
+                        {item.sessions?.tables?.table_number === 99 ? 'その他' : `#${item.sessions?.tables?.table_number ?? '-'}`}
+                      </td>
+                      <td className="px-3 py-2 font-medium text-gray-700">
+                        {item.menu_items?.name} ×{item.quantity}
+                      </td>
+                      <td className="px-4 py-2 text-right text-red-500 font-medium">
+                        ¥{(item.unit_price * item.quantity).toLocaleString()}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
         </>
       )}
     </div>

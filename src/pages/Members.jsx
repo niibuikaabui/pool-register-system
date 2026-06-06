@@ -26,7 +26,12 @@ export default function Members() {
   async function fetchMembers(q = '') {
     setLoading(true)
     let query = supabase.from('members').select('*').order('member_number', { ascending: false })
-    if (q) query = query.or(`name.ilike.%${q}%,member_number.ilike.%${q}%,phone.ilike.%${q}%`)
+    if (q) {
+      const numVal = parseInt(q)
+      const filters = [`name.ilike.%${q}%`, `phone.ilike.%${q}%`]
+      if (!isNaN(numVal)) filters.push(`member_number.eq.${numVal}`)
+      query = query.or(filters.join(','))
+    }
     const { data } = await query.limit(50)
     setMembers(data || [])
     setLoading(false)

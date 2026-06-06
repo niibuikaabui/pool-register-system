@@ -29,16 +29,19 @@ export default function Dashboard() {
   async function fetchData() {
     const [{ data: tbl }, { data: sess }] = await Promise.all([
       supabase.from('tables').select('*').order('table_number'),
-      supabase.from('sessions').select('*, members(name, member_number)').eq('is_paid', false),
+      supabase.from('sessions').select('*, members(name, member_number), guest_name').eq('is_paid', false),
     ])
     setTables(tbl || [])
     const map = {}
-    ;(sess || []).forEach(s => { map[s.table_id] = s })
+    ;(sess || []).forEach(s => {
+      if (!map[s.table_id]) map[s.table_id] = []
+      map[s.table_id].push(s)
+    })
     setSessions(map)
     setLoading(false)
   }
 
-  async function startSession(tableId) {
+  function startSession(tableId) {
     navigate(`/checkout/new?table=${tableId}`)
   }
 
@@ -67,16 +70,17 @@ export default function Dashboard() {
       </div>
 
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
-        {tables.map(table => {
-          const session = sessions[table.id]
-          const status = session ? 'in_use' : 'empty'
+        {tables.filter(t => t.table_number <= 5 || t.table_number === 99).map(table => {
+          const isOther = table.table_number === 99
+          const slips = sessions[table.id] || []
+          const status = slips.length > 0 ? 'in_use' : 'empty'
           return (
             <div
               key={table.id}
               className={`border-2 rounded-xl p-3 flex flex-col gap-2 ${STATUS_COLOR[status]}`}
             >
               <div className="flex justify-between items-center">
-                <span className="font-bold text-lg">#{table.table_number}</span>
+                <span className="font-bold text-lg">{isOther ? 'その他' : `#${table.table_number}`}</span>
                 <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
                   status === 'in_use' ? 'bg-green-200 text-green-800' : 'bg-gray-200 text-gray-600'
                 }`}>
@@ -84,14 +88,17 @@ export default function Dashboard() {
                 </span>
               </div>
 
-              {session && (
+              {slips.length > 0 && (
                 <div className="text-xs text-gray-600">
-                  <div>⏱ {formatElapsed(session.started_at)}</div>
-                  {session.members && <div>👤 {session.members.name}</div>}
-                  <div className="text-gray-500">
-                    {{ hourly_multi: '時間制（複数）', hourly_single: '時間制（一人）', freetime: 'フリータイム' }[session.pricing_type]} /
-                    {{ general: '一般', female: '女性', student: '学生' }[session.customer_type]}
-                  </div>
+                  <div className="font-medium text-green-700">伝票 {slips.length} 件</div>
+                  {slips.map((s, i) => (
+                    <div key={s.id} className="text-gray-500 mt-0.5">
+                      {i + 1}. ⏱{formatElapsed(s.started_at)}
+                      {' '}{ { general: '一般', female: '女性', student: '学生' }[s.customer_type]}
+                      {s.members && ` 👤${s.members.name}`}
+                      {!s.members && s.guest_name && ` 👤${s.guest_name}`}
+                    </div>
+                  ))}
                 </div>
               )}
 
@@ -127,10 +134,10 @@ export default function Dashboard() {
                 </button>
               ) : (
                 <button
-                  onClick={() => navigate(`/checkout/${session.id}`)}
+                  onClick={() => navigate(`/table/${table.id}`)}
                   className="mt-1 bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium rounded-lg py-2 transition-colors"
                 >
-                  会計へ
+                  伝票一覧
                 </button>
               )}
             </div>
