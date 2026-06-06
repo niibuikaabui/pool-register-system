@@ -157,7 +157,7 @@ export default function Checkout() {
   const payment = parseInt(paymentInput) || 0
   const change = payment - grandTotal
 
-  // 注文履歴：完了した時間ブロック + ドリンク注文を時刻順で並べる
+  // 注文履歴：全時間ブロック（進行中含む）+ ドリンク注文を時刻順で並べる
   const history = [
     ...completedBlocks.map(b => ({
       type: 'block',
@@ -166,7 +166,17 @@ export default function Checkout() {
       startTime: b.started_at,
       endTime: b.ended_at,
       fee: calcBlockFee(b),
+      isActive: false,
     })),
+    ...(activeBlock ? [{
+      type: 'block',
+      sortTime: new Date(activeBlock.started_at),
+      id: activeBlock.id,
+      startTime: activeBlock.started_at,
+      endTime: null,
+      fee: calcBlockFee(activeBlock),
+      isActive: true,
+    }] : []),
     ...orderItems.map(o => ({
       type: 'order',
       sortTime: new Date(o._addedAt || Date.now()),
@@ -648,7 +658,7 @@ export default function Checkout() {
                     <span className="text-gray-400 text-xs shrink-0">{fmtTime(item.sortTime)}</span>
                     {item.type === 'block' ? (
                       <span className="text-gray-700">
-                        🎱 {fmtTime(item.startTime)}〜{item.endTime ? fmtTime(item.endTime) : 'プレー中'}
+                        🎱 {fmtTime(item.startTime)}〜{item.endTime ? fmtTime(item.endTime) : <span className="text-green-600 font-medium">プレー中</span>}
                         <span className="text-gray-400 ml-1">({fmtElapsed(item.startTime, item.endTime)})</span>
                       </span>
                     ) : (
@@ -677,7 +687,8 @@ export default function Checkout() {
                         取消
                       </button>
                     )}
-                    <span className={`font-medium w-16 text-right ${item.cancelled ? 'text-gray-400 line-through' : 'text-gray-600'}`}>
+                    <span className={`font-medium text-right ${item.cancelled ? 'text-gray-400 line-through' : item.isActive ? 'text-orange-500' : 'text-gray-600'}`}>
+                      {item.isActive && <span className="text-xs mr-1">概算</span>}
                       ¥{item.fee.toLocaleString()}
                     </span>
                   </div>
