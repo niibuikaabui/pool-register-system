@@ -39,6 +39,6 @@ export default function App() {
       <AuthProvider>
         <AppRoutes />
       </AuthProvider>
-    </BrowserRouter>
+    </HashRouter>
   )
 }
