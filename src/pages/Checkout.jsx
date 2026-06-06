@@ -52,6 +52,7 @@ export default function Checkout() {
   const [paymentInput, setPaymentInput] = useState('')
   const [showPayment, setShowPayment] = useState(false)
   const [tick, setTick] = useState(0)
+  const [menuSearch, setMenuSearch] = useState('')
   const barcodeRef = useRef(null)
 
   // 1分ごとに再描画（経過時間更新用）
@@ -368,10 +369,13 @@ export default function Checkout() {
     }
   }
 
-  const drinks = menuItems.filter(m => m.category === 'drink')
-  const alcohols = menuItems.filter(m => m.category === 'alcohol')
-  const foods = menuItems.filter(m => m.category === 'food')
-  const discounts = menuItems.filter(m => m.category === 'discount')
+  const filteredMenuItems = menuSearch.trim()
+    ? menuItems.filter(m => m.name.toLowerCase().includes(menuSearch.trim().toLowerCase()))
+    : menuItems
+  const drinks = filteredMenuItems.filter(m => m.category === 'drink')
+  const alcohols = filteredMenuItems.filter(m => m.category === 'alcohol')
+  const foods = filteredMenuItems.filter(m => m.category === 'food')
+  const discounts = filteredMenuItems.filter(m => m.category === 'discount')
   const backPath = currentTableId ? `/table/${currentTableId}` : session?.table_id ? `/table/${session.table_id}` : '/'
 
   const currentTable = tables.find(t => t.id === currentTableId)
@@ -607,23 +611,36 @@ export default function Checkout() {
       {/* ── ドリンク・フード ── */}
       {(
         <div className="bg-white rounded-xl shadow-sm p-4 mb-3">
-          <h2 className="font-semibold text-gray-700 mb-3">ドリンク・フード</h2>
-          {[['🥤 ソフト', drinks], ['🍺 アルコール', alcohols], ['🍔 フード', foods], ['🏷️ 割引', discounts]].map(([label, items]) =>
-            items.length > 0 && (
-              <div key={label} className="mb-3">
-                <p className="text-sm text-gray-500 mb-2">{label}</p>
-                <div className="flex flex-wrap gap-2">
-                  {items.map(item => (
-                    <button
-                      key={item.id}
-                      onClick={() => addMenuItem(item)}
-                      className="bg-gray-100 hover:bg-gray-200 px-3 py-2 rounded-lg text-sm transition-colors"
-                    >
-                      {item.name} <span className="text-gray-500">¥{item.price}</span>
-                    </button>
-                  ))}
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="font-semibold text-gray-700">ドリンク・フード</h2>
+          </div>
+          <input
+            type="text"
+            value={menuSearch}
+            onChange={e => setMenuSearch(e.target.value)}
+            placeholder="メニューを検索..."
+            className="w-full border rounded-lg px-3 py-2 text-sm mb-3 focus:outline-none focus:border-blue-400"
+          />
+          {menuSearch.trim() && filteredMenuItems.length === 0 ? (
+            <p className="text-sm text-gray-400 text-center py-3">「{menuSearch}」に一致するメニューはありません</p>
+          ) : (
+            [['🥤 ソフト', drinks], ['🍺 アルコール', alcohols], ['🍔 フード', foods], ['🏷️ 割引', discounts]].map(([label, items]) =>
+              items.length > 0 && (
+                <div key={label} className="mb-3">
+                  {!menuSearch.trim() && <p className="text-sm text-gray-500 mb-2">{label}</p>}
+                  <div className="flex flex-wrap gap-2">
+                    {items.map(item => (
+                      <button
+                        key={item.id}
+                        onClick={() => addMenuItem(item)}
+                        className="bg-gray-100 hover:bg-gray-200 px-3 py-2 rounded-lg text-sm transition-colors"
+                      >
+                        {item.name} <span className="text-gray-500">¥{item.price}</span>
+                      </button>
+                    ))}
+                  </div>
                 </div>
-              </div>
+              )
             )
           )}
         </div>
