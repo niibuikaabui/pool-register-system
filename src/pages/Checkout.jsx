@@ -607,7 +607,7 @@ export default function Checkout() {
       {(
         <div className="bg-white rounded-xl shadow-sm p-4 mb-3">
           <h2 className="font-semibold text-gray-700 mb-3">ドリンク・フード</h2>
-          {[['🍹 ドリンク', drinks], ['🍔 フード', foods], ['🏷️ 割引', discounts]].map(([label, items]) =>
+          {[['🥤 ソフト', drinks], ['🍔 フード', foods], ['🏷️ 割引', discounts]].map(([label, items]) =>
             items.length > 0 && (
               <div key={label} className="mb-3">
                 <p className="text-sm text-gray-500 mb-2">{label}</p>

@@ -480,7 +480,7 @@ export default function Master() {
                   <div>
                     <label className="text-sm font-medium text-gray-700 mb-1 block">カテゴリ</label>
                     <div className="flex gap-2">
-                      {[['drink', `${CATEGORY_ICON.drink} ドリンク`], ['food', `${CATEGORY_ICON.food} フード`], ['discount', `${CATEGORY_ICON.discount} 割引`]].map(([v, l]) => (
+                      {[['drink', `${CATEGORY_ICON.drink} ソフト`], ['food', `${CATEGORY_ICON.food} フード`], ['discount', `${CATEGORY_ICON.discount} 割引`]].map(([v, l]) => (
                         <button key={v} onClick={() => setMenuForm(f => ({ ...f, category: v }))}
                           className={`flex-1 py-2 rounded-lg text-sm border ${menuForm.category === v ? 'bg-green-700 text-white border-green-700' : 'border-gray-300'}`}>
                           {l}
@@ -522,7 +522,7 @@ export default function Master() {
                       onChange={e => setBulkDraft(d => d.map((r, j) => j === i ? { ...r, category: e.target.value } : r))}
                       className="border rounded px-2 py-1 text-sm text-gray-600 w-28 shrink-0"
                     >
-                      <option value="drink">{CATEGORY_ICON.drink} ドリンク</option>
+                      <option value="drink">{CATEGORY_ICON.drink} ソフト</option>
                       <option value="food">{CATEGORY_ICON.food} フード</option>
                       <option value="discount">{CATEGORY_ICON.discount} 割引</option>
                     </select>
