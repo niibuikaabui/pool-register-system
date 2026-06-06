@@ -444,6 +444,72 @@ export default function Checkout() {
       )}
 
 
+      {/* ── 会員（任意） ── */}
+      <div className="bg-white rounded-xl shadow-sm p-4 mb-3">
+        <h2 className="font-semibold text-gray-700 mb-3">お客様情報（任意）</h2>
+        {memberId ? (
+          <div className="flex items-center gap-3">
+            <span className="text-green-700 font-medium">✓ {memberName || '会員選択済み'}</span>
+            <button onClick={() => { setMemberId(null); setMemberName(''); setMemberSearch('') }} className="text-sm text-gray-400">解除</button>
+          </div>
+        ) : !isNew && guestName ? (
+          <div className="flex items-center gap-3">
+            <span className="text-gray-700 font-medium">👤 {guestName}</span>
+          </div>
+        ) : (
+          <div>
+            {/* 非会員の名前入力 */}
+            {isNew && (
+              <div className="mb-3">
+                <label className="text-sm text-gray-600 mb-1 block">お名前（非会員）</label>
+                <input
+                  value={guestName}
+                  onChange={e => setGuestName(e.target.value)}
+                  placeholder="例：田中さん"
+                  className="w-full border rounded-lg px-3 py-2 text-sm"
+                />
+              </div>
+            )}
+            <div className="flex gap-2 mb-2">
+              <input
+                ref={barcodeRef}
+                value={memberSearch}
+                onChange={e => setMemberSearch(e.target.value)}
+                onKeyDown={handleBarcodeInput}
+                placeholder="会員検索（名前・会員番号・電話番号）"
+                className="flex-1 border rounded-lg px-3 py-2 text-sm"
+              />
+              <button onClick={() => searchMember(memberSearch)} className="bg-gray-200 hover:bg-gray-300 px-3 rounded-lg text-sm">
+                検索
+              </button>
+            </div>
+            {memberError && <p className="text-sm text-red-500 mt-1">{memberError}</p>}
+            {members.length > 0 && (
+              <div className="border rounded-lg divide-y">
+                {members.map(m => (
+                  <button
+                    key={m.id}
+                    onClick={() => {
+                      setMemberId(m.id)
+                      setMemberName(m.name)
+                      setMemberSearch('')
+                      setCustomerType(m.customer_type)
+                      setMembers([])
+                      setMemberError('')
+                    }}
+                    className="w-full text-left px-3 py-2 hover:bg-gray-50 text-sm"
+                  >
+                    <span className="font-medium">{m.name}</span>
+                    <span className="text-gray-400 ml-2">#{m.member_number}</span>
+                    <span className="text-gray-400 ml-2">{TYPE_LABEL[m.customer_type]}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
       {/* ── プレー設定（時間コントロールを含む） ── */}
       <div className="bg-white rounded-xl shadow-sm p-4 mb-3">
         <h2 className="font-semibold text-gray-700 mb-3">プレー設定</h2>
@@ -545,71 +611,30 @@ export default function Checkout() {
         )}
       </div>
 
-      {/* ── 会員（任意） ── */}
-      <div className="bg-white rounded-xl shadow-sm p-4 mb-3">
-        <h2 className="font-semibold text-gray-700 mb-3">お客様情報（任意）</h2>
-        {memberId ? (
-          <div className="flex items-center gap-3">
-            <span className="text-green-700 font-medium">✓ {memberName || '会員選択済み'}</span>
-            <button onClick={() => { setMemberId(null); setMemberName(''); setMemberSearch('') }} className="text-sm text-gray-400">解除</button>
-          </div>
-        ) : !isNew && guestName ? (
-          <div className="flex items-center gap-3">
-            <span className="text-gray-700 font-medium">👤 {guestName}</span>
-          </div>
-        ) : (
-          <div>
-            {/* 非会員の名前入力 */}
-            {isNew && (
-              <div className="mb-3">
-                <label className="text-sm text-gray-600 mb-1 block">お名前（非会員）</label>
-                <input
-                  value={guestName}
-                  onChange={e => setGuestName(e.target.value)}
-                  placeholder="例：田中さん"
-                  className="w-full border rounded-lg px-3 py-2 text-sm"
-                />
+      {/* ── ドリンク・フード（既存伝票のみ） ── */}
+      {!isNew && (
+        <div className="bg-white rounded-xl shadow-sm p-4 mb-3">
+          <h2 className="font-semibold text-gray-700 mb-3">ドリンク・フード</h2>
+          {[['🍹 ドリンク', drinks], ['🍔 フード', foods]].map(([label, items]) =>
+            items.length > 0 && (
+              <div key={label} className="mb-3">
+                <p className="text-sm text-gray-500 mb-2">{label}</p>
+                <div className="flex flex-wrap gap-2">
+                  {items.map(item => (
+                    <button
+                      key={item.id}
+                      onClick={() => addMenuItem(item)}
+                      className="bg-gray-100 hover:bg-gray-200 px-3 py-2 rounded-lg text-sm transition-colors"
+                    >
+                      {item.name} <span className="text-gray-500">¥{item.price}</span>
+                    </button>
+                  ))}
+                </div>
               </div>
-            )}
-            <div className="flex gap-2 mb-2">
-              <input
-                ref={barcodeRef}
-                value={memberSearch}
-                onChange={e => setMemberSearch(e.target.value)}
-                onKeyDown={handleBarcodeInput}
-                placeholder="会員検索（名前・会員番号・電話番号）"
-                className="flex-1 border rounded-lg px-3 py-2 text-sm"
-              />
-              <button onClick={() => searchMember(memberSearch)} className="bg-gray-200 hover:bg-gray-300 px-3 rounded-lg text-sm">
-                検索
-              </button>
-            </div>
-            {memberError && <p className="text-sm text-red-500 mt-1">{memberError}</p>}
-            {members.length > 0 && (
-              <div className="border rounded-lg divide-y">
-                {members.map(m => (
-                  <button
-                    key={m.id}
-                    onClick={() => {
-                      setMemberId(m.id)
-                      setMemberName(m.name)
-                      setMemberSearch('')
-                      setCustomerType(m.customer_type)
-                      setMembers([])
-                      setMemberError('')
-                    }}
-                    className="w-full text-left px-3 py-2 hover:bg-gray-50 text-sm"
-                  >
-                    <span className="font-medium">{m.name}</span>
-                    <span className="text-gray-400 ml-2">#{m.member_number}</span>
-                    <span className="text-gray-400 ml-2">{TYPE_LABEL[m.customer_type]}</span>
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-      </div>
+            )
+          )}
+        </div>
+      )}
 
       {/* ── 注文履歴（既存伝票のみ） ── */}
       {!isNew && history.length > 0 && (
@@ -681,31 +706,6 @@ export default function Checkout() {
               </div>
             ))}
           </div>
-        </div>
-      )}
-
-      {/* ── ドリンク・フード（既存伝票のみ） ── */}
-      {!isNew && (
-        <div className="bg-white rounded-xl shadow-sm p-4 mb-3">
-          <h2 className="font-semibold text-gray-700 mb-3">ドリンク・フード</h2>
-          {[['🍹 ドリンク', drinks], ['🍔 フード', foods]].map(([label, items]) =>
-            items.length > 0 && (
-              <div key={label} className="mb-3">
-                <p className="text-sm text-gray-500 mb-2">{label}</p>
-                <div className="flex flex-wrap gap-2">
-                  {items.map(item => (
-                    <button
-                      key={item.id}
-                      onClick={() => addMenuItem(item)}
-                      className="bg-gray-100 hover:bg-gray-200 px-3 py-2 rounded-lg text-sm transition-colors"
-                    >
-                      {item.name} <span className="text-gray-500">¥{item.price}</span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )
-          )}
         </div>
       )}
 
