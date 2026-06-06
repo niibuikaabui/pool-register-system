@@ -81,7 +81,11 @@ export default function Master() {
   const [activeTab, setActiveTab] = useState('pricing')
   const [saving, setSaving] = useState(false)
   const [msg, flash] = useFlashMsg()
-  const [newMenu, setNewMenu] = useState({ name: '', category: 'drink', price: '' })
+  const [showMenuForm, setShowMenuForm] = useState(false)
+  const [menuForm, setMenuForm] = useState({ name: '', category: 'drink', price: '' })
+  const [editMenuId, setEditMenuId] = useState(null)
+  const [bulkEditMode, setBulkEditMode] = useState(false)
+  const [bulkDraft, setBulkDraft] = useState([])
 
   const [showPricingForm, setShowPricingForm] = useState(false)
   const [pricingForm, setPricingForm] = useState(EMPTY_PRICING_FORM)
@@ -168,16 +172,90 @@ export default function Master() {
     fetchAll()
   }
 
-  async function addMenu() {
-    if (!newMenu.name || !newMenu.price) return
-    const { error } = await supabase.from('menu_items').insert({
-      name: newMenu.name,
-      category: newMenu.category,
-      price: Number(newMenu.price),
-      is_available: true,
+  function startBulkEdit() {
+    setBulkDraft(menus.map(m => ({ ...m, price: String(m.price) })))
+    setBulkEditMode(true)
+  }
+
+  function cancelBulkEdit() {
+    setBulkEditMode(false)
+    setBulkDraft([])
+  }
+
+  function addBulkRow() {
+    setBulkDraft(d => [...d, { id: null, _tmpId: Date.now(), name: '', category: 'drink', price: '' }])
+  }
+
+  async function saveBulkEdit() {
+    setSaving(true)
+    const existing = bulkDraft.filter(d => d.id !== null)
+    const newRows = bulkDraft.filter(d => d.id === null && d.name && d.price)
+
+    const updates = existing.filter(draft => {
+      const orig = menus.find(m => m.id === draft.id)
+      return orig && (orig.name !== draft.name || orig.category !== draft.category || String(orig.price) !== draft.price)
     })
-    if (error) { alert('追加エラー: ' + error.message); return }
-    setNewMenu({ name: '', category: 'drink', price: '' })
+
+    await Promise.all([
+      ...updates.map(draft =>
+        supabase.from('menu_items').update({
+          name: draft.name,
+          category: draft.category,
+          price: Number(draft.price),
+        }).eq('id', draft.id)
+      ),
+      ...newRows.map(draft =>
+        supabase.from('menu_items').insert({
+          name: draft.name,
+          category: draft.category,
+          price: Number(draft.price),
+          is_available: true,
+        })
+      ),
+    ])
+
+    setBulkEditMode(false)
+    setBulkDraft([])
+    setSaving(false)
+    flash(`更新 ${updates.length}件・追加 ${newRows.length}件`)
+    fetchAll()
+  }
+
+  function startAddMenu() {
+    setMenuForm({ name: '', category: 'drink', price: '' })
+    setEditMenuId(null)
+    setShowMenuForm(true)
+  }
+
+  function startEditMenu(item) {
+    setMenuForm({ name: item.name, category: item.category, price: String(item.price) })
+    setEditMenuId(item.id)
+    setShowMenuForm(true)
+  }
+
+  async function saveMenuForm() {
+    if (!menuForm.name || !menuForm.price) return
+    setSaving(true)
+    if (editMenuId) {
+      const { error } = await supabase.from('menu_items').update({
+        name: menuForm.name,
+        category: menuForm.category,
+        price: Number(menuForm.price),
+      }).eq('id', editMenuId)
+      if (error) { alert('更新エラー: ' + error.message); setSaving(false); return }
+    } else {
+      const { error } = await supabase.from('menu_items').insert({
+        name: menuForm.name,
+        category: menuForm.category,
+        price: Number(menuForm.price),
+        is_available: true,
+      })
+      if (error) { alert('追加エラー: ' + error.message); setSaving(false); return }
+    }
+    setShowMenuForm(false)
+    setEditMenuId(null)
+    setSaving(false)
+    flash(editMenuId ? 'メニューを更新しました' : 'メニューを追加しました')
     fetchAll()
   }
 
@@ -370,34 +448,125 @@ export default function Master() {
 
       {/* ── メニュー ── */}
       {activeTab === 'menu' && (
-        <div className="bg-white rounded-xl shadow-sm p-4">
-          <div className="flex gap-2 mb-4">
-            <select value={newMenu.category} onChange={e => setNewMenu(m => ({ ...m, category: e.target.value }))} className="border rounded-lg px-3 py-2 text-sm">
-              <option value="drink">ドリンク</option>
-              <option value="food">フード</option>
-              <option value="discount">割引</option>
-            </select>
-            <input value={newMenu.name} onChange={e => setNewMenu(m => ({ ...m, name: e.target.value }))} placeholder="メニュー名" className="flex-1 border rounded-lg px-3 py-2 text-sm" />
-            <input value={newMenu.price} onChange={e => setNewMenu(m => ({ ...m, price: e.target.value }))} placeholder="価格" type="number" className="border rounded-lg px-3 py-2 text-sm w-24" />
-            <button onClick={addMenu} className="bg-green-700 hover:bg-green-600 text-white px-4 py-2 rounded-lg text-sm font-medium">追加</button>
-          </div>
-
-          <SortableList
-            items={menus}
-            onReorder={reorderMenus}
-            renderItem={item => (
+        <div>
+          <div className="flex justify-end gap-2 mb-3">
+            {bulkEditMode ? (
               <>
-                <span className="text-sm text-gray-400 w-16 shrink-0">{CATEGORY_ICON[item.category]} {CATEGORY_LABEL[item.category]}</span>
-                <span className="flex-1 font-medium">{item.name}</span>
-                <span className="text-gray-600">¥{item.price}</span>
-                <button onClick={() => toggleMenuAvailable(item.id, item.is_available)}
-                  className={`text-xs px-3 py-1 rounded-full ${item.is_available ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-400'}`}>
-                  {item.is_available ? '販売中' : '停止中'}
+                <button onClick={cancelBulkEdit} className="border border-gray-300 text-gray-700 px-4 py-2 rounded-lg text-sm font-medium">キャンセル</button>
+                <button onClick={saveBulkEdit} disabled={saving} className="bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white px-4 py-2 rounded-lg text-sm font-medium">
+                  {saving ? '保存中...' : '保存'}
                 </button>
-                <button onClick={() => deleteMenu(item.id)} className="text-xs text-red-400 hover:text-red-600 px-2 py-1">削除</button>
+              </>
+            ) : (
+              <>
+                <button onClick={startBulkEdit} className="border border-gray-300 text-gray-700 px-4 py-2 rounded-lg text-sm font-medium">一括編集</button>
+                <button onClick={startAddMenu} className="bg-green-700 hover:bg-green-600 text-white px-4 py-2 rounded-lg text-sm font-medium">+ 新規追加</button>
               </>
             )}
-          />
+          </div>
+
+          {showMenuForm && (
+            <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+              <div className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-sm">
+                <h2 className="text-lg font-bold mb-4">{editMenuId ? 'メニューを編集' : 'メニューを追加'}</h2>
+                <div className="flex flex-col gap-3">
+                  <div>
+                    <label className="text-sm font-medium text-gray-700 mb-1 block">カテゴリ</label>
+                    <div className="flex gap-2">
+                      {[['drink', `${CATEGORY_ICON.drink} ドリンク`], ['food', `${CATEGORY_ICON.food} フード`], ['discount', `${CATEGORY_ICON.discount} 割引`]].map(([v, l]) => (
+                        <button key={v} onClick={() => setMenuForm(f => ({ ...f, category: v }))}
+                          className={`flex-1 py-2 rounded-lg text-sm border ${menuForm.category === v ? 'bg-green-700 text-white border-green-700' : 'border-gray-300'}`}>
+                          {l}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium text-gray-700 mb-1 block">メニュー名</label>
+                    <input value={menuForm.name} onChange={e => setMenuForm(f => ({ ...f, name: e.target.value }))}
+                      className="w-full border rounded-lg px-3 py-2" placeholder="例：コーラ" autoFocus />
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium text-gray-700 mb-1 block">価格（円）</label>
+                    <input type="number" value={menuForm.price} onChange={e => setMenuForm(f => ({ ...f, price: e.target.value }))}
+                      className="w-full border rounded-lg px-3 py-2 text-right" min="0" placeholder="例：300" />
+                  </div>
+                </div>
+                <div className="flex gap-3 mt-5">
+                  <button onClick={() => setShowMenuForm(false)} className="flex-1 border border-gray-300 rounded-lg py-2 text-gray-700">キャンセル</button>
+                  <button onClick={saveMenuForm} disabled={saving || !menuForm.name || !menuForm.price}
+                    className="flex-1 bg-green-700 hover:bg-green-600 disabled:opacity-50 text-white font-medium rounded-lg py-2">
+                    {saving ? '保存中...' : '保存'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          <div className="bg-white rounded-xl shadow-sm overflow-hidden">
+            {menus.length === 0 ? (
+              <div className="text-center py-10 text-gray-400">メニューがありません</div>
+            ) : bulkEditMode ? (
+              <div className="divide-y">
+                {bulkDraft.map((draft, i) => (
+                  <div key={draft.id ?? draft._tmpId} className={`flex items-center gap-2 px-4 py-2 ${draft.id === null ? 'bg-green-50' : ''}`}>
+                    <select
+                      value={draft.category}
+                      onChange={e => setBulkDraft(d => d.map((r, j) => j === i ? { ...r, category: e.target.value } : r))}
+                      className="border rounded px-2 py-1 text-sm text-gray-600 w-28 shrink-0"
+                    >
+                      <option value="drink">{CATEGORY_ICON.drink} ドリンク</option>
+                      <option value="food">{CATEGORY_ICON.food} フード</option>
+                      <option value="discount">{CATEGORY_ICON.discount} 割引</option>
+                    </select>
+                    <input
+                      value={draft.name}
+                      onChange={e => setBulkDraft(d => d.map((r, j) => j === i ? { ...r, name: e.target.value } : r))}
+                      className="flex-1 border rounded px-2 py-1 text-sm"
+                      placeholder={draft.id === null ? 'メニュー名' : ''}
+                    />
+                    <input
+                      type="number"
+                      value={draft.price}
+                      onChange={e => setBulkDraft(d => d.map((r, j) => j === i ? { ...r, price: e.target.value } : r))}
+                      className="border rounded px-2 py-1 text-sm w-24 text-right"
+                      placeholder={draft.id === null ? '価格' : ''}
+                    />
+                    <span className="text-xs text-gray-400 w-6 text-center">円</span>
+                    {draft.id === null && (
+                      <button
+                        onClick={() => setBulkDraft(d => d.filter((_, j) => j !== i))}
+                        className="text-gray-300 hover:text-red-400 text-lg leading-none px-1"
+                      >×</button>
+                    )}
+                  </div>
+                ))}
+                <div className="px-4 py-2">
+                  <button onClick={addBulkRow} className="text-sm text-green-700 hover:text-green-600 font-medium">
+                    ＋ 行を追加
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <SortableList
+                items={menus}
+                onReorder={reorderMenus}
+                renderItem={item => (
+                  <>
+                    <span className="text-sm text-gray-400 w-16 shrink-0">{CATEGORY_ICON[item.category]} {CATEGORY_LABEL[item.category]}</span>
+                    <span className="flex-1 font-medium">{item.name}</span>
+                    <span className="text-gray-600">¥{item.price}</span>
+                    <button onClick={() => toggleMenuAvailable(item.id, item.is_available)}
+                      className={`text-xs px-3 py-1 rounded-full ${item.is_available ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-400'}`}>
+                      {item.is_available ? '販売中' : '停止中'}
+                    </button>
+                    <button onClick={() => startEditMenu(item)} className="text-sm text-blue-600 hover:text-blue-800 px-3 py-1 rounded border border-blue-200 hover:border-blue-400">編集</button>
+                    <button onClick={() => deleteMenu(item.id)} className="text-xs text-red-400 hover:text-red-600 px-2 py-1">削除</button>
+                  </>
+                )}
+              />
+            )}
+          </div>
         </div>
       )}
 
