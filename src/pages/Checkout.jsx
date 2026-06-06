@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
+import { useAuth } from '../contexts/AuthContext'
 import { TYPE_LABEL, PRICING_LABEL, CATEGORY_ICON } from '../lib/constants'
 import { fmtElapsed, fmtTime } from '../lib/utils'
 
@@ -15,6 +16,7 @@ function toLocalDatetimeInput(isoStr) {
 }
 
 export default function Checkout() {
+  const { user } = useAuth()
   const { sessionId } = useParams()
   const [searchParams] = useSearchParams()
   const tableId = searchParams.get('table')
@@ -333,6 +335,7 @@ export default function Checkout() {
       member_id: memberId || null,
       customer_type: customerType,
       pricing_type: pricingType,
+      checked_by: user?.id || null,
     }).eq('id', sessionId)
 
     const activeTableId = currentTableId || session?.table_id
@@ -519,7 +522,7 @@ export default function Checkout() {
         <h2 className="font-semibold text-gray-700 mb-3">プレー設定</h2>
 
         {/* 区分・種別 */}
-        <div className="grid grid-cols-2 gap-3 mb-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
           <div>
             <label className="text-sm text-gray-600 mb-1 block">区分</label>
             <div className="flex gap-1">

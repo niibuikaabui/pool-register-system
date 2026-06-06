@@ -189,14 +189,14 @@ export default function Master() {
   async function saveBulkEdit() {
     setSaving(true)
     const existing = bulkDraft.filter(d => d.id !== null)
-    const newRows = bulkDraft.filter(d => d.id === null && d.name && d.price)
+    const newRows = bulkDraft.filter(d => d.id === null && d.name.trim() && d.price !== '')
 
     const updates = existing.filter(draft => {
       const orig = menus.find(m => m.id === draft.id)
       return orig && (orig.name !== draft.name || orig.category !== draft.category || String(orig.price) !== draft.price)
     })
 
-    await Promise.all([
+    const results = await Promise.all([
       ...updates.map(draft =>
         supabase.from('menu_items').update({
           name: draft.name,
@@ -206,7 +206,7 @@ export default function Master() {
       ),
       ...newRows.map(draft =>
         supabase.from('menu_items').insert({
-          name: draft.name,
+          name: draft.name.trim(),
           category: draft.category,
           price: Number(draft.price),
           is_available: true,
@@ -214,11 +214,18 @@ export default function Master() {
       ),
     ])
 
+    const errors = results.map(r => r.error).filter(Boolean)
+    if (errors.length > 0) {
+      alert('保存エラー: ' + errors.map(e => e.message).join('\n'))
+      setSaving(false)
+      return
+    }
+
     setBulkEditMode(false)
     setBulkDraft([])
     setSaving(false)
     flash(`更新 ${updates.length}件・追加 ${newRows.length}件`)
-    fetchAll()
+    await fetchAll()
   }
 
   function startAddMenu() {

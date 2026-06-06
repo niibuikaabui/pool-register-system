@@ -74,31 +74,34 @@ export default function Dashboard() {
       <div className="flex justify-between items-center mb-4">
         <h1 className="text-xl font-bold text-gray-800">台の状況</h1>
         <span className="text-sm text-gray-500">
-          使用中: {Object.keys(sessions).length} / {tables.length} 台
+          使用中: {Object.keys(sessions).length} 台
         </span>
       </div>
 
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
-        {tables.map(table => {
+        {tables.filter(table => table.table_number < 6 || table.table_number === 99).map(table => {
           const isOther = table.table_number === 99
           const slips = sessions[table.id] || []
           const status = slips.length > 0 ? 'in_use' : 'empty'
           const playingCount = slips.filter(s => s.isPlaying).length
-          function handleCardClick() {
-            if (status === 'empty') {
-              startSession(table.id)
-            } else {
-              navigate(`/table/${table.id}`)
-            }
+          function handleCardClick(e) {
+            if (status === 'empty') startSession(table.id)
+            else navigate(`/table/${table.id}`)
           }
 
           return (
             <div
               key={table.id}
-              onClick={handleCardClick}
-              className={`border-2 rounded-xl p-3 flex flex-col gap-2 cursor-pointer transition-opacity active:opacity-70 ${STATUS_COLOR[status]}`}
+              className={`border-2 rounded-xl p-3 flex flex-col gap-2 ${STATUS_COLOR[status]}`}
             >
-              <div className="flex justify-between items-center">
+              <button
+                onClick={handleCardClick}
+                className={`flex justify-between items-center w-full rounded-lg px-2 py-1.5 -mx-2 transition-colors ${
+                  status === 'in_use'
+                    ? 'hover:bg-green-100 active:bg-green-200'
+                    : 'hover:bg-gray-200 active:bg-gray-300'
+                }`}
+              >
                 <span className="font-bold text-lg">{isOther ? 'その他' : `#${table.table_number}`}</span>
                 {slips.length > 0 && (
                   <div className="flex items-center gap-2 text-xs font-medium">
@@ -106,18 +109,28 @@ export default function Dashboard() {
                     <span className={playingCount > 0 ? 'text-blue-600' : 'text-gray-400'}>🎱 {playingCount}人</span>
                   </div>
                 )}
-              </div>
+              </button>
 
               {slips.length > 0 && (
-                <div className="text-xs text-gray-600">
+                <div className="flex flex-col gap-1">
                   {slips.map((s, i) => (
-                    <div key={s.id} className="text-gray-500 mt-0.5 flex items-center gap-1">
-                      <span>{i + 1}. ⏱{fmtElapsed(s.started_at)}</span>
-                      <span>{TYPE_LABEL[s.customer_type]}</span>
-                      {s.members && <span>👤{s.members.name}</span>}
-                      {!s.members && s.guest_name && <span>👤{s.guest_name}</span>}
-                      {s.isPlaying && <span className="text-blue-500 font-medium">▶</span>}
-                    </div>
+                    <button
+                      key={s.id}
+                      onClick={e => { e.stopPropagation(); navigate(`/checkout/${s.id}?table=${table.id}`) }}
+                      className={`text-left text-xs rounded-lg px-2 py-1.5 transition-colors active:opacity-70 ${
+                        s.isPlaying ? 'bg-blue-50 hover:bg-blue-100' : 'bg-white/60 hover:bg-white'
+                      }`}
+                    >
+                      <div className="flex sm:flex-row flex-col sm:items-center sm:gap-1">
+                        <div className="flex items-center gap-1 text-gray-600">
+                          <span>{i + 1}.</span>
+                          {s.members && <span>👤{s.members.name}</span>}
+                          {!s.members && s.guest_name && <span>👤{s.guest_name}</span>}
+                          <span>{TYPE_LABEL[s.customer_type]}</span>
+                        </div>
+                        {s.isPlaying && <span className="text-blue-500 font-medium">▶ {fmtElapsed(s.started_at)}</span>}
+                      </div>
+                    </button>
                   ))}
                 </div>
               )}
