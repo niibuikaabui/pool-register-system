@@ -13,6 +13,12 @@ function fmtTime(dateStr) {
   return new Date(dateStr).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })
 }
 
+function toLocalDatetimeInput(isoStr) {
+  const d = new Date(isoStr)
+  const pad = n => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+
 function fmtElapsed(startedAt, endedAt) {
   const diff = Math.floor((new Date(endedAt || Date.now()) - new Date(startedAt)) / 60000)
   if (diff < 0) return '0分'
@@ -46,6 +52,9 @@ export default function Checkout() {
   const [currentTableId, setCurrentTableId] = useState(tableId)
   const [showMoveModal, setShowMoveModal] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [editingBlockId, setEditingBlockId] = useState(null)
+  const [editStart, setEditStart] = useState('')
+  const [editEnd, setEditEnd] = useState('')
   const [paymentInput, setPaymentInput] = useState('')
   const [showPayment, setShowPayment] = useState(false)
   const [tick, setTick] = useState(0)
@@ -228,6 +237,27 @@ export default function Checkout() {
 
   function handleBarcodeInput(e) {
     if (e.key === 'Enter') searchMember(memberSearch)
+  }
+
+  // ─── 時間ブロック編集 ───
+  function openEditBlock(block) {
+    setEditingBlockId(block.id)
+    setEditStart(toLocalDatetimeInput(block.started_at))
+    setEditEnd(block.ended_at ? toLocalDatetimeInput(block.ended_at) : '')
+  }
+
+  async function saveEditBlock(block) {
+    const newStart = new Date(editStart).toISOString()
+    const newEnd = editEnd ? new Date(editEnd).toISOString() : null
+    if (newEnd && newEnd <= newStart) {
+      alert('終了時刻は開始時刻より後にしてください')
+      return
+    }
+    const update = { started_at: newStart }
+    if (block.ended_at) update.ended_at = newEnd || block.ended_at
+    await supabase.from('time_blocks').update(update).eq('id', block.id)
+    setTimeBlocks(prev => prev.map(b => b.id === block.id ? { ...b, ...update } : b))
+    setEditingBlockId(null)
   }
 
   // ─── 台移動 ───
@@ -441,18 +471,53 @@ export default function Checkout() {
         {!isNew && pricingType !== 'freetime' && (
           <div className="border-t pt-3 mt-1">
             {activeBlock ? (
-              <div className="flex items-center justify-between bg-green-50 border border-green-200 rounded-lg px-4 py-3">
-                <div className="text-sm">
-                  <span className="font-semibold text-green-800">▶ プレー中</span>
-                  <span className="text-gray-600 ml-3">{fmtTime(activeBlock.started_at)} 開始</span>
-                  <span className="text-gray-500 ml-2">経過 {fmtElapsed(activeBlock.started_at, null)}</span>
+              <div>
+                <div className="flex items-center justify-between bg-green-50 border border-green-200 rounded-lg px-4 py-3">
+                  <div className="text-sm">
+                    <span className="font-semibold text-green-800">▶ プレー中</span>
+                    <span className="text-gray-600 ml-3">{fmtTime(activeBlock.started_at)} 開始</span>
+                    <span className="text-gray-500 ml-2">経過 {fmtElapsed(activeBlock.started_at, null)}</span>
+                    <button
+                      onClick={() => openEditBlock(activeBlock)}
+                      className="ml-3 text-xs text-blue-400 hover:text-blue-600 border border-blue-200 hover:border-blue-400 px-2 py-0.5 rounded transition-colors"
+                    >
+                      開始時刻を修正
+                    </button>
+                  </div>
+                  <button
+                    onClick={() => endTimeBlock(activeBlock.id)}
+                    className="bg-red-500 hover:bg-red-400 text-white px-4 py-2 rounded-lg text-sm font-bold transition-colors"
+                  >
+                    ■ 終了
+                  </button>
                 </div>
-                <button
-                  onClick={() => endTimeBlock(activeBlock.id)}
-                  className="bg-red-500 hover:bg-red-400 text-white px-4 py-2 rounded-lg text-sm font-bold transition-colors"
-                >
-                  ■ 終了
-                </button>
+                {editingBlockId === activeBlock.id && (
+                  <div className="mt-2 bg-blue-50 border border-blue-200 rounded-lg p-3 flex flex-col gap-2">
+                    <div className="flex items-center gap-2">
+                      <label className="text-xs text-gray-600 w-12 shrink-0">開始</label>
+                      <input
+                        type="datetime-local"
+                        value={editStart}
+                        onChange={e => setEditStart(e.target.value)}
+                        className="flex-1 border rounded px-2 py-1 text-sm"
+                      />
+                    </div>
+                    <div className="flex gap-2 justify-end">
+                      <button
+                        onClick={() => setEditingBlockId(null)}
+                        className="text-xs text-gray-400 px-3 py-1 rounded border"
+                      >
+                        キャンセル
+                      </button>
+                      <button
+                        onClick={() => saveEditBlock(activeBlock)}
+                        className="text-xs text-white bg-blue-500 hover:bg-blue-600 px-3 py-1 rounded"
+                      >
+                        保存
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
             ) : (
               <button
@@ -538,36 +603,85 @@ export default function Checkout() {
           <h2 className="font-semibold text-gray-700 mb-3">注文履歴</h2>
           <div className="flex flex-col gap-2">
             {history.map((item, i) => (
-              <div key={`${item.id}-${i}`} className={`flex items-center justify-between text-sm ${item.cancelled ? 'opacity-40' : ''}`}>
-                <div className="flex items-center gap-2 min-w-0">
-                  <span className="text-gray-400 text-xs shrink-0">{fmtTime(item.sortTime)}</span>
-                  {item.type === 'block' ? (
-                    <span className="text-gray-700">
-                      🎱 {fmtTime(item.startTime)}〜{fmtTime(item.endTime)}
-                      <span className="text-gray-400 ml-1">({fmtElapsed(item.startTime, item.endTime)})</span>
+              <div key={`${item.id}-${i}`} className={`text-sm ${item.cancelled ? 'opacity-40' : ''}`}>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className="text-gray-400 text-xs shrink-0">{fmtTime(item.sortTime)}</span>
+                    {item.type === 'block' ? (
+                      <span className="text-gray-700">
+                        🎱 {fmtTime(item.startTime)}〜{item.endTime ? fmtTime(item.endTime) : 'プレー中'}
+                        <span className="text-gray-400 ml-1">({fmtElapsed(item.startTime, item.endTime)})</span>
+                      </span>
+                    ) : (
+                      <span className={`text-gray-700 ${item.cancelled ? 'line-through' : ''}`}>
+                        🍹 {item.name} ×{item.quantity}
+                      </span>
+                    )}
+                    {item.cancelled && (
+                      <span className="text-xs text-red-400 font-medium">キャンセル</span>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0 ml-2">
+                    {item.type === 'block' && editingBlockId !== item.id && (
+                      <button
+                        onClick={() => openEditBlock({ id: item.id, started_at: item.startTime, ended_at: item.endTime })}
+                        className="text-xs text-blue-400 hover:text-blue-600 border border-blue-200 hover:border-blue-400 px-2 py-0.5 rounded transition-colors"
+                      >
+                        修正
+                      </button>
+                    )}
+                    {item.type === 'order' && !item.cancelled && item.dbId && (
+                      <button
+                        onClick={() => cancelOrderItem(item.dbId)}
+                        className="text-xs text-red-400 hover:text-red-600 border border-red-200 hover:border-red-400 px-2 py-0.5 rounded transition-colors"
+                      >
+                        取消
+                      </button>
+                    )}
+                    <span className={`font-medium w-16 text-right ${item.cancelled ? 'text-gray-400 line-through' : 'text-gray-600'}`}>
+                      ¥{item.fee.toLocaleString()}
                     </span>
-                  ) : (
-                    <span className={`text-gray-700 ${item.cancelled ? 'line-through' : ''}`}>
-                      🍹 {item.name} ×{item.quantity}
-                    </span>
-                  )}
-                  {item.cancelled && (
-                    <span className="text-xs text-red-400 font-medium">キャンセル</span>
-                  )}
+                  </div>
                 </div>
-                <div className="flex items-center gap-2 shrink-0 ml-2">
-                  {item.type === 'order' && !item.cancelled && item.dbId && (
-                    <button
-                      onClick={() => cancelOrderItem(item.dbId)}
-                      className="text-xs text-red-400 hover:text-red-600 border border-red-200 hover:border-red-400 px-2 py-0.5 rounded transition-colors"
-                    >
-                      取消
-                    </button>
-                  )}
-                  <span className={`font-medium w-16 text-right ${item.cancelled ? 'text-gray-400 line-through' : 'text-gray-600'}`}>
-                    ¥{item.fee.toLocaleString()}
-                  </span>
-                </div>
+                {/* 時間編集UI */}
+                {item.type === 'block' && editingBlockId === item.id && (
+                  <div className="mt-2 bg-blue-50 border border-blue-200 rounded-lg p-3 flex flex-col gap-2">
+                    <div className="flex items-center gap-2">
+                      <label className="text-xs text-gray-600 w-12 shrink-0">開始</label>
+                      <input
+                        type="datetime-local"
+                        value={editStart}
+                        onChange={e => setEditStart(e.target.value)}
+                        className="flex-1 border rounded px-2 py-1 text-sm"
+                      />
+                    </div>
+                    {item.endTime && (
+                      <div className="flex items-center gap-2">
+                        <label className="text-xs text-gray-600 w-12 shrink-0">終了</label>
+                        <input
+                          type="datetime-local"
+                          value={editEnd}
+                          onChange={e => setEditEnd(e.target.value)}
+                          className="flex-1 border rounded px-2 py-1 text-sm"
+                        />
+                      </div>
+                    )}
+                    <div className="flex gap-2 justify-end">
+                      <button
+                        onClick={() => setEditingBlockId(null)}
+                        className="text-xs text-gray-400 px-3 py-1 rounded border"
+                      >
+                        キャンセル
+                      </button>
+                      <button
+                        onClick={() => saveEditBlock({ id: item.id, started_at: item.startTime, ended_at: item.endTime })}
+                        className="text-xs text-white bg-blue-500 hover:bg-blue-600 px-3 py-1 rounded"
+                      >
+                        保存
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
             ))}
           </div>
