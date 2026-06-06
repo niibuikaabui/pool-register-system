@@ -3,6 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { TYPE_LABEL, PRICING_LABEL } from '../lib/constants'
 import { fmtElapsed } from '../lib/utils'
+import TableMoveModal from '../components/TableMoveModal'
 
 function roundUp50(n) { return Math.ceil(n / 50) * 50 }
 
@@ -17,6 +18,8 @@ export default function TableSlips() {
   const [showBulkPay, setShowBulkPay] = useState(false)
   const [bulkPayInput, setBulkPayInput] = useState('')
   const [bulkPaying, setBulkPaying] = useState(false)
+  const [movingSlip, setMovingSlip] = useState(null)
+  const [allTables, setAllTables] = useState([])
   const [tick, setTick] = useState(0)
   const navigate = useNavigate()
 
@@ -52,7 +55,7 @@ export default function TableSlips() {
   }, [tableId])
 
   async function fetchData() {
-    const [{ data: tbl }, { data: sess }, { data: activeBlocks }, { data: p }] = await Promise.all([
+    const [{ data: tbl }, { data: sess }, { data: activeBlocks }, { data: p }, { data: tbls }] = await Promise.all([
       supabase.from('tables').select('*').eq('id', tableId).single(),
       supabase.from('sessions')
         .select('*, members(name, member_number), guest_name, order_items(unit_price, quantity, cancelled_at)')
@@ -61,9 +64,11 @@ export default function TableSlips() {
         .order('started_at'),
       supabase.from('time_blocks').select('session_id, started_at').is('ended_at', null),
       supabase.from('pricing_master').select('*'),
+      supabase.from('tables').select('*').order('table_number'),
     ])
     setTable(tbl)
     setPricing(p || [])
+    setAllTables(tbls || [])
     const playingIds = new Set((activeBlocks || []).map(b => b.session_id))
     const playingStart = Object.fromEntries((activeBlocks || []).map(b => [b.session_id, b.started_at]))
     setSlips((sess || []).map(s => ({
@@ -149,6 +154,23 @@ export default function TableSlips() {
     await fetchData()
   }
 
+  async function handleMoveTable(newTableId) {
+    if (!movingSlip) return
+    // 選択した伝票を新しい台に移動
+    await supabase.from('sessions').update({ table_id: newTableId }).eq('id', movingSlip.id)
+    // 新しい台を使用中に
+    await supabase.from('tables').update({ status: 'in_use' }).eq('id', newTableId)
+    // 元の台に残伝票がなければ空きに
+    const { data: remaining } = await supabase
+      .from('sessions').select('id')
+      .eq('table_id', tableId).eq('is_paid', false).neq('id', movingSlip.id)
+    if (!remaining || remaining.length === 0) {
+      await supabase.from('tables').update({ status: 'empty' }).eq('id', tableId)
+    }
+    setMovingSlip(null)
+    await fetchData()
+  }
+
   async function handleBulkPay() {
     setBulkPaying(true)
     const now = new Date().toISOString()
@@ -168,6 +190,17 @@ export default function TableSlips() {
 
   return (
     <div>
+      {/* 台移動モーダル */}
+      {movingSlip && (
+        <TableMoveModal
+          tables={allTables}
+          currentTableId={tableId}
+          onMove={handleMoveTable}
+          onClose={() => setMovingSlip(null)}
+          description={`伝票 ${slips.findIndex(s => s.id === movingSlip.id) + 1}${(movingSlip.members?.name || movingSlip.guest_name) ? `（${movingSlip.members?.name || movingSlip.guest_name}）` : ''} を移動します`}
+        />
+      )}
+
       {/* Header */}
       <div className="flex items-center gap-3 mb-5">
         <button onClick={() => navigate('/')} className="text-gray-500 hover:text-gray-700 text-sm">← 戻る</button>
@@ -236,6 +269,14 @@ export default function TableSlips() {
                     )
                   })()}
                 </div>
+              </div>
+              <div className="mt-2 flex justify-end" onClick={e => e.stopPropagation()}>
+                <button
+                  onClick={() => setMovingSlip(slip)}
+                  className="text-xs text-blue-600 hover:text-blue-800 border border-blue-200 hover:border-blue-400 px-3 py-1 rounded-full transition-colors"
+                >
+                  台を移動
+                </button>
               </div>
             </button>
           ))}

@@ -3,6 +3,7 @@ import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 import { TYPE_LABEL, PRICING_LABEL, CATEGORY_ICON } from '../lib/constants'
+import TableMoveModal from '../components/TableMoveModal'
 import { fmtElapsed, fmtTime } from '../lib/utils'
 
 function roundUp50(n) {
@@ -395,28 +396,12 @@ export default function Checkout() {
 
       {/* 台移動モーダル */}
       {showMoveModal && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50" onClick={() => setShowMoveModal(false)}>
-          <div className="bg-white rounded-2xl p-5 w-80 shadow-xl" onClick={e => e.stopPropagation()}>
-            <h2 className="font-bold text-gray-800 mb-4">移動先の台を選択</h2>
-            <div className="flex flex-col gap-2">
-              {tables
-                .filter(t => t.id !== currentTableId)
-                .map(t => (
-                  <button
-                    key={t.id}
-                    onClick={() => handleMoveTable(t.id)}
-                    className="flex items-center justify-between px-4 py-3 rounded-xl border hover:bg-gray-50 text-left transition-colors"
-                  >
-                    <span className="font-medium">{t.table_number === 99 ? 'その他' : `#${t.table_number}台`}</span>
-                    <span className={`text-xs px-2 py-0.5 rounded-full ${t.status === 'in_use' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
-                      {t.status === 'in_use' ? '使用中' : '空き'}
-                    </span>
-                  </button>
-                ))}
-            </div>
-            <button onClick={() => setShowMoveModal(false)} className="mt-4 w-full text-gray-400 text-sm">キャンセル</button>
-          </div>
-        </div>
+        <TableMoveModal
+          tables={tables}
+          currentTableId={currentTableId}
+          onMove={handleMoveTable}
+          onClose={() => setShowMoveModal(false)}
+        />
       )}
 
 
