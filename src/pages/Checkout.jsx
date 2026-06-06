@@ -398,10 +398,11 @@ export default function Checkout() {
               {['general', 'female', 'student'].map(t => (
                 <button
                   key={t}
-                  onClick={() => setCustomerType(t)}
+                  onClick={() => !activeBlock && setCustomerType(t)}
+                  disabled={!!activeBlock}
                   className={`flex-1 py-2 rounded-lg text-sm font-medium border ${
                     customerType === t ? 'bg-green-700 text-white border-green-700' : 'border-gray-300 text-gray-700'
-                  }`}
+                  } ${activeBlock ? 'opacity-50 cursor-not-allowed' : ''}`}
                 >
                   {TYPE_LABEL[t]}
                 </button>
@@ -414,10 +415,11 @@ export default function Checkout() {
               {['hourly_multi', 'hourly_single', 'freetime'].map(v => (
                 <button
                   key={v}
-                  onClick={() => setPricingType(v)}
+                  onClick={() => !activeBlock && setPricingType(v)}
+                  disabled={!!activeBlock}
                   className={`flex-1 py-2 rounded-lg text-xs font-medium border whitespace-nowrap ${
                     pricingType === v ? 'bg-blue-600 text-white border-blue-600' : 'border-gray-300 text-gray-700'
-                  }`}
+                  } ${activeBlock ? 'opacity-50 cursor-not-allowed' : ''}`}
                 >
                   {PRICING_LABEL[v]}
                 </button>
