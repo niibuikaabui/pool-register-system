@@ -4,6 +4,7 @@ import Layout from './components/Layout'
 import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
 import Checkout from './pages/Checkout'
+import TableSlips from './pages/TableSlips'
 import Members from './pages/Members'
 import Reports from './pages/Reports'
 import Master from './pages/Master'
@@ -25,6 +26,7 @@ function AppRoutes() {
       <Route path="/login" element={user ? <Navigate to="/" replace /> : <Login />} />
       <Route path="/" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
       <Route path="/checkout/:sessionId" element={<ProtectedRoute><Checkout /></ProtectedRoute>} />
+      <Route path="/table/:tableId" element={<ProtectedRoute><TableSlips /></ProtectedRoute>} />
       <Route path="/members" element={<ProtectedRoute><Members /></ProtectedRoute>} />
       <Route path="/reports" element={<ProtectedRoute><Reports /></ProtectedRoute>} />
       <Route path="/master" element={<ProtectedRoute adminOnly><Master /></ProtectedRoute>} />
