@@ -102,8 +102,8 @@ export default function Master() {
 
   async function fetchAll() {
     const [{ data: p }, { data: m }, { data: s }, { data: u }] = await Promise.all([
-      supabase.from('pricing_master').select('*').order('customer_type').order('pricing_type'),
-      supabase.from('menu_items').select('*').order('category').order('name'),
+      supabase.from('pricing_master').select('*').order('sort_order').order('id'),
+      supabase.from('menu_items').select('*').order('sort_order').order('id'),
       supabase.from('shop_settings').select('*').limit(1).single(),
       supabase.from('user_profiles').select('*').order('name'),
     ])
