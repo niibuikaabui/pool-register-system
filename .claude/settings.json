@@ -1,0 +1,17 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "shell": "powershell",
+            "statusMessage": "devブランチにコミット中...",
+            "command": "$obj = $input | ConvertFrom-Json; $filePath = $obj.tool_input.file_path; $projectRoot = 'C:/claude-cowork/pool_register_system'; if (-not $filePath.StartsWith($projectRoot)) { exit 0 }; $fname = Split-Path $filePath -Leaf; $env:PATH += ';C:/Program Files/Git/cmd'; Set-Location $projectRoot; $branch = git rev-parse --abbrev-ref HEAD 2>&1; if ($branch -ne 'dev') { git stash 2>&1 | Out-Null; git checkout dev 2>&1 | Out-Null; git stash pop 2>&1 | Out-Null }; git add $filePath 2>&1 | Out-Null; $st = git status --porcelain $filePath 2>&1; if ($st) { git commit -m \"auto: $fname\" 2>&1 | Out-Null }"
+          }
+        ]
+      }
+    ]
+  }
+}
