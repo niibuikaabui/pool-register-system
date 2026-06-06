@@ -73,7 +73,7 @@ export default function Checkout() {
   async function fetchMaster() {
     const [{ data: p }, { data: m }, { data: t }] = await Promise.all([
       supabase.from('pricing_master').select('*'),
-      supabase.from('menu_items').select('*').eq('is_available', true).order('category'),
+      supabase.from('menu_items').select('*').eq('is_available', true).order('sort_order').order('id'),
       supabase.from('tables').select('*').order('table_number'),
     ])
     setPricing(p || [])
