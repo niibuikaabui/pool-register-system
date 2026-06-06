@@ -94,7 +94,7 @@ export default function Checkout() {
   async function loadSession() {
     const { data: s } = await supabase
       .from('sessions')
-      .select('*, order_items(*, menu_items(name)), members(name)')
+      .select('*, order_items(*, menu_items(name, category)), members(name)')
       .eq('id', sessionId)
       .single()
     if (s) {
@@ -183,6 +183,7 @@ export default function Checkout() {
       id: o.id || `${o.menu_item_id}-${o._addedAt}`,
       dbId: o.id,
       name: o.menu_items?.name,
+      category: o.menu_items?.category,
       quantity: o.quantity,
       fee: o.unit_price * o.quantity,
       cancelled: !!o.cancelled_at,
@@ -462,24 +463,23 @@ export default function Checkout() {
             <span className="text-green-700 font-medium">✓ {memberName || '会員選択済み'}</span>
             <button onClick={() => { setMemberId(null); setMemberName(''); setMemberSearch('') }} className="text-sm text-gray-400">解除</button>
           </div>
-        ) : !isNew && guestName ? (
+        ) : guestName ? (
           <div className="flex items-center gap-3">
             <span className="text-gray-700 font-medium">👤 {guestName}</span>
+            <button onClick={() => setGuestName('')} className="text-sm text-gray-400">変更</button>
           </div>
         ) : (
           <div>
             {/* 非会員の名前入力 */}
-            {isNew && (
-              <div className="mb-3">
-                <label className="text-sm text-gray-600 mb-1 block">お名前（非会員）</label>
-                <input
-                  value={guestName}
-                  onChange={e => setGuestName(e.target.value)}
-                  placeholder="例：田中さん"
-                  className="w-full border rounded-lg px-3 py-2 text-sm"
-                />
-              </div>
-            )}
+            <div className="mb-3">
+              <label className="text-sm text-gray-600 mb-1 block">お名前（非会員）</label>
+              <input
+                value={guestName}
+                onChange={e => setGuestName(e.target.value)}
+                placeholder="例：田中さん"
+                className="w-full border rounded-lg px-3 py-2 text-sm"
+              />
+            </div>
             <div className="flex gap-2 mb-2">
               <input
                 ref={barcodeRef}
@@ -663,7 +663,7 @@ export default function Checkout() {
                       </span>
                     ) : (
                       <span className={`text-gray-700 ${item.cancelled ? 'line-through' : ''}`}>
-                        🍹 {item.name} ×{item.quantity}
+                        {item.category === 'food' ? '🍔' : '🍹'} {item.name} ×{item.quantity}
                       </span>
                     )}
                     {item.cancelled && (
@@ -694,7 +694,7 @@ export default function Checkout() {
                   </div>
                 </div>
                 {/* 時間編集UI */}
-                {item.type === 'block' && editingBlockId === item.id && (
+                {item.type === 'block' && !item.isActive && editingBlockId === item.id && (
                   <div className="mt-2 bg-blue-50 border border-blue-200 rounded-lg p-3 flex flex-col gap-2">
                     <div className="flex items-center gap-2">
                       <label className="text-xs text-gray-600 w-12 shrink-0">開始</label>
