@@ -712,20 +712,7 @@ export default function Checkout() {
       {/* ── 合計・会計（既存伝票のみ） ── */}
       {!isNew && (
         <div className="bg-white rounded-xl shadow-sm p-4 mb-4">
-          <div className="flex justify-between text-sm text-gray-600 mb-1">
-            <span>
-              プレー料金
-              {activeBlock && pricingType !== 'freetime' && (
-                <span className="text-xs text-orange-500 ml-1">（進行中含む概算）</span>
-              )}
-            </span>
-            <span>¥{playFee.toLocaleString()}</span>
-          </div>
-          <div className="flex justify-between text-sm text-gray-600 mb-2">
-            <span>ドリンク・フード</span>
-            <span>¥{foodFee.toLocaleString()}</span>
-          </div>
-          <div className="flex justify-between font-bold text-lg border-t pt-2">
+          <div className="flex justify-between font-bold text-lg pt-2">
             <span>合計</span>
             <span>¥{grandTotal.toLocaleString()}</span>
           </div>
