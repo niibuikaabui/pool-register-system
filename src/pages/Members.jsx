@@ -131,7 +131,7 @@ export default function Members() {
               <div>
                 <label className="text-sm font-medium text-gray-700 mb-1 block">区分 *</label>
                 <div className="flex gap-2">
-                  {['general', 'female', 'student'].map(t => (
+                  {['general', 'female', 'university', 'high_school'].map(t => (
                     <button
                       key={t}
                       onClick={() => setForm(f => ({ ...f, customer_type: t }))}

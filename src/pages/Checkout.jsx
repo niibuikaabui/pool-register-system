@@ -511,7 +511,7 @@ export default function Checkout() {
           <div>
             <label className="text-sm text-gray-600 mb-1 block">区分</label>
             <div className="flex gap-1">
-              {['general', 'female', 'student'].map(t => (
+              {['general', 'female', 'university', 'high_school'].map(t => (
                 <button
                   key={t}
                   onClick={() => !activeBlock && setCustomerType(t)}

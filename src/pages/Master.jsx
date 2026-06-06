@@ -379,7 +379,7 @@ export default function Master() {
                   <div>
                     <label className="text-sm font-medium text-gray-700 mb-1 block">区分</label>
                     <div className="flex gap-2">
-                      {['general', 'female', 'student'].map(t => (
+                      {['general', 'female', 'university', 'high_school'].map(t => (
                         <button key={t} onClick={() => setPricingForm(f => ({ ...f, customer_type: t }))}
                           className={`flex-1 py-2 rounded-lg text-sm border ${pricingForm.customer_type === t ? 'bg-green-700 text-white border-green-700' : 'border-gray-300'}`}>
                           {TYPE_LABEL[t]}

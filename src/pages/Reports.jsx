@@ -131,7 +131,7 @@ export default function Reports() {
   }
 
   function downloadCSV() {
-    const header = ['日付', '件数', 'プレー料金', 'F&D', '合計', '一般', '女性', '学生', '時間制', 'フリータイム']
+    const header = ['日付', '件数', 'プレー料金', 'F&D', '合計', '一般', '女性', '大学生', '高校生', '時間制', 'フリータイム']
     const rows = Object.entries(grouped).sort().map(([date, list]) => {
       const s = calcStats(list)
       return [
@@ -142,7 +142,8 @@ export default function Reports() {
         s.total,
         s.byType.general?.total || 0,
         s.byType.female?.total || 0,
-        s.byType.student?.total || 0,
+        s.byType.university?.total || 0,
+        s.byType.high_school?.total || 0,
         s.hourly.reduce((a, x) => a + (x.grand_total || 0), 0),
         s.freetime.reduce((a, x) => a + (x.grand_total || 0), 0),
       ]
@@ -250,8 +251,8 @@ export default function Reports() {
           {/* Breakdown */}
           <div className="bg-white rounded-xl shadow-sm p-4 mb-4">
             <h3 className="text-sm font-semibold text-gray-600 mb-3">区分別</h3>
-            <div className="grid grid-cols-3 gap-3">
-              {['general', 'female', 'student'].map(ct => {
+            <div className="grid grid-cols-4 gap-3">
+              {['general', 'female', 'university', 'high_school'].map(ct => {
                 const d = allStats.byType[ct] || { count: 0, total: 0 }
                 return (
                   <div key={ct} className="text-center">
