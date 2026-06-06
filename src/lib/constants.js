@@ -6,5 +6,5 @@ export const PRICING_LABEL = {
   freetime: 'フリータイム',
 }
 
-export const CATEGORY_ICON = { drink: '🥤', food: '🍔', discount: '🏷️' }
-export const CATEGORY_LABEL = { drink: 'ソフト', food: 'フード', discount: '割引' }
+export const CATEGORY_ICON = { drink: '🥤', alcohol: '🍺', food: '🍔', discount: '🏷️' }
+export const CATEGORY_LABEL = { drink: 'ソフト', alcohol: 'アルコール', food: 'フード', discount: '割引' }
