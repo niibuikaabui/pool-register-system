@@ -1,4 +1,4 @@
-import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
+import { HashRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
 import Layout from './components/Layout'
 import Login from './pages/Login'
@@ -35,7 +35,7 @@ function AppRoutes() {
 
 export default function App() {
   return (
-    <BrowserRouter basename="/pool_register_system">
+    <HashRouter>
       <AuthProvider>
         <AppRoutes />
       </AuthProvider>
