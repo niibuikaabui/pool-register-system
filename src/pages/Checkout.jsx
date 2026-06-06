@@ -671,7 +671,7 @@ export default function Checkout() {
                     )}
                   </div>
                   <div className="flex items-center gap-2 shrink-0 ml-2">
-                    {item.type === 'block' && editingBlockId !== item.id && (
+                    {item.type === 'block' && !item.isActive && editingBlockId !== item.id && (
                       <button
                         onClick={() => openEditBlock({ id: item.id, started_at: item.startTime, ended_at: item.endTime })}
                         className="text-xs text-blue-400 hover:text-blue-600 border border-blue-200 hover:border-blue-400 px-2 py-0.5 rounded transition-colors"
