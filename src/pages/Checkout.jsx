@@ -53,8 +53,10 @@ export default function Checkout() {
   const [showMoveModal, setShowMoveModal] = useState(false)
   const [saving, setSaving] = useState(false)
   const [editingBlockId, setEditingBlockId] = useState(null)
-  const [editStart, setEditStart] = useState('')
-  const [editEnd, setEditEnd] = useState('')
+  const [editStartDate, setEditStartDate] = useState('')
+  const [editStartTime, setEditStartTime] = useState('')
+  const [editEndDate, setEditEndDate] = useState('')
+  const [editEndTime, setEditEndTime] = useState('')
   const [paymentInput, setPaymentInput] = useState('')
   const [showPayment, setShowPayment] = useState(false)
   const [tick, setTick] = useState(0)
@@ -241,18 +243,44 @@ export default function Checkout() {
 
   // ─── 時間ブロック編集 ───
   function openEditBlock(block) {
+    const [sd, st] = toLocalDatetimeInput(block.started_at).split('T')
+    setEditStartDate(sd)
+    setEditStartTime(st)
+    if (block.ended_at) {
+      const [ed, et] = toLocalDatetimeInput(block.ended_at).split('T')
+      setEditEndDate(ed)
+      setEditEndTime(et)
+    } else {
+      setEditEndDate('')
+      setEditEndTime('')
+    }
     setEditingBlockId(block.id)
-    setEditStart(toLocalDatetimeInput(block.started_at))
-    setEditEnd(block.ended_at ? toLocalDatetimeInput(block.ended_at) : '')
   }
 
   async function saveEditBlock(block) {
-    const newStart = new Date(editStart).toISOString()
-    const newEnd = editEnd ? new Date(editEnd).toISOString() : null
+    const newStart = new Date(`${editStartDate}T${editStartTime}`).toISOString()
+    const newEnd = (editEndDate && editEndTime) ? new Date(`${editEndDate}T${editEndTime}`).toISOString() : null
+
     if (newEnd && newEnd <= newStart) {
       alert('終了時刻は開始時刻より後にしてください')
       return
     }
+
+    // 元の時刻との差が6時間を超える場合は確認
+    const origStart = new Date(block.started_at)
+    const origEnd = block.ended_at ? new Date(block.ended_at) : null
+    const startDiff = Math.abs(new Date(newStart) - origStart) / 3600000
+    const endDiff = newEnd && origEnd ? Math.abs(new Date(newEnd) - origEnd) / 3600000 : 0
+    if (startDiff > 6 || endDiff > 6) {
+      const ok = window.confirm(
+        `6時間以上の修正があります。入力内容を確認してください。\n\n` +
+        `開始: ${editStartDate} ${editStartTime}\n` +
+        (newEnd ? `終了: ${editEndDate} ${editEndTime}\n` : '') +
+        `\nこの内容で保存しますか？`
+      )
+      if (!ok) return
+    }
+
     const update = { started_at: newStart }
     if (block.ended_at) update.ended_at = newEnd || block.ended_at
     await supabase.from('time_blocks').update(update).eq('id', block.id)
@@ -495,26 +523,12 @@ export default function Checkout() {
                   <div className="mt-2 bg-blue-50 border border-blue-200 rounded-lg p-3 flex flex-col gap-2">
                     <div className="flex items-center gap-2">
                       <label className="text-xs text-gray-600 w-12 shrink-0">開始</label>
-                      <input
-                        type="datetime-local"
-                        value={editStart}
-                        onChange={e => setEditStart(e.target.value)}
-                        className="flex-1 border rounded px-2 py-1 text-sm"
-                      />
+                      <input type="date" value={editStartDate} onChange={e => setEditStartDate(e.target.value)} className="border rounded px-2 py-1 text-sm" />
+                      <input type="time" value={editStartTime} onChange={e => setEditStartTime(e.target.value)} className="border rounded px-2 py-1 text-sm w-24" />
                     </div>
                     <div className="flex gap-2 justify-end">
-                      <button
-                        onClick={() => setEditingBlockId(null)}
-                        className="text-xs text-gray-400 px-3 py-1 rounded border"
-                      >
-                        キャンセル
-                      </button>
-                      <button
-                        onClick={() => saveEditBlock(activeBlock)}
-                        className="text-xs text-white bg-blue-500 hover:bg-blue-600 px-3 py-1 rounded"
-                      >
-                        保存
-                      </button>
+                      <button onClick={() => setEditingBlockId(null)} className="text-xs text-gray-400 px-3 py-1 rounded border">キャンセル</button>
+                      <button onClick={() => saveEditBlock(activeBlock)} className="text-xs text-white bg-blue-500 hover:bg-blue-600 px-3 py-1 rounded">保存</button>
                     </div>
                   </div>
                 )}
@@ -648,37 +662,19 @@ export default function Checkout() {
                   <div className="mt-2 bg-blue-50 border border-blue-200 rounded-lg p-3 flex flex-col gap-2">
                     <div className="flex items-center gap-2">
                       <label className="text-xs text-gray-600 w-12 shrink-0">開始</label>
-                      <input
-                        type="datetime-local"
-                        value={editStart}
-                        onChange={e => setEditStart(e.target.value)}
-                        className="flex-1 border rounded px-2 py-1 text-sm"
-                      />
+                      <input type="date" value={editStartDate} onChange={e => setEditStartDate(e.target.value)} className="border rounded px-2 py-1 text-sm" />
+                      <input type="time" value={editStartTime} onChange={e => setEditStartTime(e.target.value)} className="border rounded px-2 py-1 text-sm w-24" />
                     </div>
                     {item.endTime && (
                       <div className="flex items-center gap-2">
                         <label className="text-xs text-gray-600 w-12 shrink-0">終了</label>
-                        <input
-                          type="datetime-local"
-                          value={editEnd}
-                          onChange={e => setEditEnd(e.target.value)}
-                          className="flex-1 border rounded px-2 py-1 text-sm"
-                        />
+                        <input type="date" value={editEndDate} onChange={e => setEditEndDate(e.target.value)} className="border rounded px-2 py-1 text-sm" />
+                        <input type="time" value={editEndTime} onChange={e => setEditEndTime(e.target.value)} className="border rounded px-2 py-1 text-sm w-24" />
                       </div>
                     )}
                     <div className="flex gap-2 justify-end">
-                      <button
-                        onClick={() => setEditingBlockId(null)}
-                        className="text-xs text-gray-400 px-3 py-1 rounded border"
-                      >
-                        キャンセル
-                      </button>
-                      <button
-                        onClick={() => saveEditBlock({ id: item.id, started_at: item.startTime, ended_at: item.endTime })}
-                        className="text-xs text-white bg-blue-500 hover:bg-blue-600 px-3 py-1 rounded"
-                      >
-                        保存
-                      </button>
+                      <button onClick={() => setEditingBlockId(null)} className="text-xs text-gray-400 px-3 py-1 rounded border">キャンセル</button>
+                      <button onClick={() => saveEditBlock({ id: item.id, started_at: item.startTime, ended_at: item.endTime })} className="text-xs text-white bg-blue-500 hover:bg-blue-600 px-3 py-1 rounded">保存</button>
                     </div>
                   </div>
                 )}
