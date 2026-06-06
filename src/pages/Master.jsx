@@ -170,7 +170,13 @@ export default function Master() {
 
   async function addMenu() {
     if (!newMenu.name || !newMenu.price) return
-    await supabase.from('menu_items').insert({ ...newMenu, price: Number(newMenu.price), is_available: true, sort_order: menus.length + 1 })
+    const { error } = await supabase.from('menu_items').insert({
+      name: newMenu.name,
+      category: newMenu.category,
+      price: Number(newMenu.price),
+      is_available: true,
+    })
+    if (error) { alert('追加エラー: ' + error.message); return }
     setNewMenu({ name: '', category: 'drink', price: '' })
     fetchAll()
   }
