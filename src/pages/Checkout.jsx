@@ -1,16 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
-
-const TYPE_LABEL = { general: '一般', female: '女性', student: '学生' }
-const PRICING_LABEL = { hourly_multi: '時間制（複数）', hourly_single: '時間制（一人）', freetime: 'フリータイム' }
+import { TYPE_LABEL, PRICING_LABEL, CATEGORY_ICON } from '../lib/constants'
+import { fmtElapsed, fmtTime } from '../lib/utils'
 
 function roundUp50(n) {
   return Math.ceil(n / 50) * 50
-}
-
-function fmtTime(dateStr) {
-  return new Date(dateStr).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })
 }
 
 function toLocalDatetimeInput(isoStr) {
@@ -19,21 +14,11 @@ function toLocalDatetimeInput(isoStr) {
   return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 
-function fmtElapsed(startedAt, endedAt) {
-  const diff = Math.floor((new Date(endedAt || Date.now()) - new Date(startedAt)) / 60000)
-  if (diff < 0) return '0分'
-  const h = Math.floor(diff / 60)
-  const m = diff % 60
-  return h > 0 ? `${h}時間${m}分` : `${m}分`
-}
-
 export default function Checkout() {
   const { sessionId } = useParams()
   const [searchParams] = useSearchParams()
   const tableId = searchParams.get('table')
   const navigate = useNavigate()
-  const isNew = sessionId === 'new'
-
   const [pricing, setPricing] = useState([])
   const [menuItems, setMenuItems] = useState([])
   const [members, setMembers] = useState([])
@@ -44,6 +29,9 @@ export default function Checkout() {
   const [memberName, setMemberName] = useState('')
   const [memberSearch, setMemberSearch] = useState('')
   const [guestName, setGuestName] = useState('')
+  const [guestNameSaved, setGuestNameSaved] = useState(false)
+  const [editingGuestName, setEditingGuestName] = useState(false)
+  const [guestNameDraft, setGuestNameDraft] = useState('')
   const [memberError, setMemberError] = useState('')
   const [orderItems, setOrderItems] = useState([])
   const [timeBlocks, setTimeBlocks] = useState([])
@@ -52,6 +40,7 @@ export default function Checkout() {
   const [currentTableId, setCurrentTableId] = useState(tableId)
   const [showMoveModal, setShowMoveModal] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [checkoutError, setCheckoutError] = useState('')
   const [editingBlockId, setEditingBlockId] = useState(null)
   const [editStartDate, setEditStartDate] = useState('')
   const [editStartTime, setEditStartTime] = useState('')
@@ -70,14 +59,12 @@ export default function Checkout() {
 
   useEffect(() => {
     fetchMaster()
-    if (!isNew) {
-      loadSession()
-      const channel = supabase
-        .channel(`checkout-${sessionId}`)
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'time_blocks', filter: `session_id=eq.${sessionId}` }, loadTimeBlocks)
-        .subscribe()
-      return () => supabase.removeChannel(channel)
-    }
+    loadSession()
+    const channel = supabase
+      .channel(`checkout-${sessionId}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'time_blocks', filter: `session_id=eq.${sessionId}` }, loadTimeBlocks)
+      .subscribe()
+    return () => supabase.removeChannel(channel)
   }, [sessionId])
 
   async function fetchMaster() {
@@ -104,7 +91,7 @@ export default function Checkout() {
       setMemberId(s.member_id)
       if (s.members?.name) setMemberName(s.members.name)
       setCurrentTableId(s.table_id)
-      if (s.guest_name) setGuestName(s.guest_name)
+      if (s.guest_name) { setGuestName(s.guest_name); setGuestNameSaved(true) }
       setOrderItems((s.order_items || []).map(o => ({ ...o, _addedAt: o.created_at || new Date().toISOString() })))
     }
     await loadTimeBlocks()
@@ -317,28 +304,6 @@ export default function Checkout() {
     setShowMoveModal(false)
   }
 
-  // ─── 伝票作成（新規） ───
-  async function handleCreateSession() {
-    setSaving(true)
-    const { data, error } = await supabase.from('sessions').insert({
-      table_id: tableId,
-      member_id: memberId || null,
-      guest_name: memberId ? null : (guestName.trim() || null),
-      customer_type: customerType,
-      pricing_type: pricingType,
-      started_at: new Date().toISOString(),
-      is_paid: false,
-    }).select().single()
-    if (error) {
-      alert('伝票作成エラー: ' + error.message)
-      setSaving(false)
-      return
-    }
-    await supabase.from('tables').update({ status: 'in_use' }).eq('id', tableId)
-    navigate(`/checkout/${data.id}?table=${tableId}`, { replace: true })
-    setSaving(false)
-  }
-
   // ─── 会計完了 ───
   async function handleCheckout() {
     setSaving(true)
@@ -379,7 +344,7 @@ export default function Checkout() {
       .neq('id', sessionId)
 
     if (!remaining || remaining.length === 0) {
-      await supabase.from('tables').update({ status: 'empty' }).eq('id', activeTableId)
+      await supabase.from('tables').update({ status: 'empty', note: null }).eq('id', activeTableId)
     }
 
     if (memberId) {
@@ -401,6 +366,7 @@ export default function Checkout() {
 
   const drinks = menuItems.filter(m => m.category === 'drink')
   const foods = menuItems.filter(m => m.category === 'food')
+  const discounts = menuItems.filter(m => m.category === 'discount')
   const backPath = currentTableId ? `/table/${currentTableId}` : session?.table_id ? `/table/${session.table_id}` : '/'
 
   const currentTable = tables.find(t => t.id === currentTableId)
@@ -412,20 +378,16 @@ export default function Checkout() {
     <div className="max-w-2xl mx-auto">
       <div className="flex items-center gap-3 mb-4">
         <button onClick={() => navigate(backPath)} className="text-gray-500 hover:text-gray-700 text-sm">← 戻る</button>
-        <h1 className="text-xl font-bold text-gray-800">
-          {isNew ? '新規伝票' : `伝票`}
-        </h1>
-        {!isNew && tableLabel && (
+        <h1 className="text-xl font-bold text-gray-800">伝票</h1>
+        {tableLabel && (
           <span className="bg-gray-100 text-gray-700 text-sm font-medium px-3 py-1 rounded-full">{tableLabel}</span>
         )}
-        {!isNew && (
-          <button
-            onClick={() => setShowMoveModal(true)}
-            className="ml-auto text-xs text-blue-600 hover:text-blue-800 border border-blue-200 hover:border-blue-400 px-3 py-1 rounded-full transition-colors"
-          >
-            台を移動
-          </button>
-        )}
+        <button
+          onClick={() => setShowMoveModal(true)}
+          className="ml-auto text-xs text-blue-600 hover:text-blue-800 border border-blue-200 hover:border-blue-400 px-3 py-1 rounded-full transition-colors"
+        >
+          台を移動
+        </button>
       </div>
 
       {/* 台移動モーダル */}
@@ -435,7 +397,7 @@ export default function Checkout() {
             <h2 className="font-bold text-gray-800 mb-4">移動先の台を選択</h2>
             <div className="flex flex-col gap-2">
               {tables
-                .filter(t => (t.table_number <= 5 || t.table_number === 99) && t.id !== currentTableId)
+                .filter(t => t.id !== currentTableId)
                 .map(t => (
                   <button
                     key={t.id}
@@ -463,23 +425,55 @@ export default function Checkout() {
             <span className="text-green-700 font-medium">✓ {memberName || '会員選択済み'}</span>
             <button onClick={() => { setMemberId(null); setMemberName(''); setMemberSearch('') }} className="text-sm text-gray-400">解除</button>
           </div>
-        ) : guestName ? (
+        ) : guestNameSaved && !editingGuestName ? (
           <div className="flex items-center gap-3">
             <span className="text-gray-700 font-medium">👤 {guestName}</span>
-            <button onClick={() => setGuestName('')} className="text-sm text-gray-400">変更</button>
+            <button
+              onClick={() => { setGuestNameDraft(guestName); setEditingGuestName(true) }}
+              className="text-sm text-gray-400"
+            >変更</button>
           </div>
         ) : (
           <div>
             {/* 非会員の名前入力 */}
-            <div className="mb-3">
-              <label className="text-sm text-gray-600 mb-1 block">お名前（非会員）</label>
-              <input
-                value={guestName}
-                onChange={e => setGuestName(e.target.value)}
-                placeholder="例：田中さん"
-                className="w-full border rounded-lg px-3 py-2 text-sm"
-              />
-            </div>
+            {editingGuestName ? (
+              <div className="mb-3 bg-blue-50 border border-blue-200 rounded-lg p-3 flex flex-col gap-2">
+                <div className="flex items-center gap-2">
+                  <label className="text-xs text-gray-600 w-12 shrink-0">お名前</label>
+                  <input
+                    value={guestNameDraft}
+                    onChange={e => setGuestNameDraft(e.target.value)}
+                    placeholder="例：田中さん"
+                    className="flex-1 border rounded px-2 py-1 text-sm"
+                    autoFocus
+                  />
+                </div>
+                <div className="flex gap-2 justify-end">
+                  <button onClick={() => setEditingGuestName(false)} className="text-xs text-gray-400 px-3 py-1 rounded border">キャンセル</button>
+                  <button onClick={async () => {
+                    setGuestName(guestNameDraft)
+                    setGuestNameSaved(true)
+                    setEditingGuestName(false)
+                    await supabase.from('sessions').update({ guest_name: guestNameDraft.trim() || null }).eq('id', sessionId)
+                  }} className="text-xs text-white bg-blue-500 hover:bg-blue-600 px-3 py-1 rounded">保存</button>
+                </div>
+              </div>
+            ) : (
+              <div className="mb-3">
+                <label className="text-sm text-gray-600 mb-1 block">お名前（非会員）</label>
+                <input
+                  value={guestName}
+                  onChange={e => setGuestName(e.target.value)}
+                  onBlur={async e => {
+                    const name = e.target.value.trim()
+                    if (name) setGuestNameSaved(true)
+                    await supabase.from('sessions').update({ guest_name: name || null }).eq('id', sessionId)
+                  }}
+                  placeholder="例：田中さん"
+                  className="w-full border rounded-lg px-3 py-2 text-sm"
+                />
+              </div>
+            )}
             <div className="flex gap-2 mb-2">
               <input
                 ref={barcodeRef}
@@ -571,8 +565,8 @@ export default function Checkout() {
           </p>
         )}
 
-        {/* 時間ブロック（既存伝票 かつ 時間制の場合のみ） */}
-        {!isNew && pricingType !== 'freetime' && (
+        {/* 時間ブロック（時間制の場合のみ） */}
+        {pricingType !== 'freetime' && (
           <div className="border-t pt-3 mt-1">
             {activeBlock ? (
               <div>
@@ -621,11 +615,11 @@ export default function Checkout() {
         )}
       </div>
 
-      {/* ── ドリンク・フード（既存伝票のみ） ── */}
-      {!isNew && (
+      {/* ── ドリンク・フード ── */}
+      {(
         <div className="bg-white rounded-xl shadow-sm p-4 mb-3">
           <h2 className="font-semibold text-gray-700 mb-3">ドリンク・フード</h2>
-          {[['🍹 ドリンク', drinks], ['🍔 フード', foods]].map(([label, items]) =>
+          {[['🍹 ドリンク', drinks], ['🍔 フード', foods], ['🏷️ 割引', discounts]].map(([label, items]) =>
             items.length > 0 && (
               <div key={label} className="mb-3">
                 <p className="text-sm text-gray-500 mb-2">{label}</p>
@@ -646,8 +640,8 @@ export default function Checkout() {
         </div>
       )}
 
-      {/* ── 注文履歴（既存伝票のみ） ── */}
-      {!isNew && history.length > 0 && (
+      {/* ── 注文履歴 ── */}
+      {history.length > 0 && (
         <div className="bg-white rounded-xl shadow-sm p-4 mb-3">
           <h2 className="font-semibold text-gray-700 mb-3">注文履歴</h2>
           <div className="flex flex-col gap-2">
@@ -663,7 +657,7 @@ export default function Checkout() {
                       </span>
                     ) : (
                       <span className={`text-gray-700 ${item.cancelled ? 'line-through' : ''}`}>
-                        {item.category === 'food' ? '🍔' : '🍹'} {item.name} ×{item.quantity}
+                        {CATEGORY_ICON[item.category] ?? '🍹'} {item.name} ×{item.quantity}
                       </span>
                     )}
                     {item.cancelled && (
@@ -720,8 +714,8 @@ export default function Checkout() {
         </div>
       )}
 
-      {/* ── 合計・会計（既存伝票のみ） ── */}
-      {!isNew && (
+      {/* ── 合計・会計 ── */}
+      {(
         <div className="bg-white rounded-xl shadow-sm p-4 mb-4">
           <div className="flex justify-between font-bold text-lg pt-2">
             <span>合計</span>
@@ -730,13 +724,13 @@ export default function Checkout() {
 
           {showPayment ? (
             <div className="mt-4">
-              <label className="text-sm text-gray-600 mb-1 block">お預かり金額（現金）</label>
+              <label className="text-sm text-gray-600 mb-1 block">お預かり金額（現金）<span className="text-gray-400 font-normal ml-1">任意</span></label>
               <input
                 type="number"
                 value={paymentInput}
                 onChange={e => setPaymentInput(e.target.value)}
                 className="w-full border-2 border-blue-400 rounded-lg px-4 py-3 text-xl text-right font-bold"
-                placeholder="0"
+                placeholder="入力しない場合はそのまま会計完了"
               />
               {payment > 0 && (
                 <div className={`mt-2 text-right text-lg font-bold ${change >= 0 ? 'text-green-700' : 'text-red-600'}`}>
@@ -745,33 +739,37 @@ export default function Checkout() {
               )}
               <button
                 onClick={handleCheckout}
-                disabled={saving || payment < grandTotal}
+                disabled={saving}
                 className="mt-3 w-full bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-bold rounded-xl py-4 text-lg transition-colors"
               >
                 {saving ? '処理中...' : '会計完了'}
               </button>
             </div>
           ) : (
-            <button
-              onClick={() => setShowPayment(true)}
-              className="mt-4 w-full bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-xl py-4 text-lg transition-colors"
-            >
-              会計へ進む
-            </button>
+            <>
+              <button
+                onClick={() => {
+                  if (activeBlock) {
+                    setCheckoutError('プレーが終了していません。先にプレーを終了させてください。')
+                    return
+                  }
+                  setCheckoutError('')
+                  setShowPayment(true)
+                }}
+                className="mt-4 w-full bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-xl py-4 text-lg transition-colors"
+              >
+                会計へ進む
+              </button>
+              {checkoutError && (
+                <div className="mt-2 text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-4 py-3">
+                  {checkoutError}
+                </div>
+              )}
+            </>
           )}
         </div>
       )}
 
-      {/* ── 伝票作成ボタン（新規のみ） ── */}
-      {isNew && (
-        <button
-          onClick={handleCreateSession}
-          disabled={saving}
-          className="w-full bg-green-700 hover:bg-green-600 disabled:opacity-50 text-white font-bold rounded-xl py-4 text-lg transition-colors"
-        >
-          {saving ? '処理中...' : '伝票を作成'}
-        </button>
-      )}
     </div>
   )
 }

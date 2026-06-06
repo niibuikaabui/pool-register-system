@@ -112,9 +112,9 @@ create policy "write admin" on shop_settings for all using (
 -- 初期データ投入
 -- ========================================================
 
--- 台を10台作成 (必要に応じて台数を変更)
+-- 台を作成
 insert into tables (table_number) values
-  (1), (2), (3), (4), (5), (6), (7), (8), (9), (10)
+  (1), (2), (3), (4), (5), (99)
 on conflict (table_number) do nothing;
 
 -- 料金マスタ初期値

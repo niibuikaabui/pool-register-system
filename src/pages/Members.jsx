@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { supabase } from '../lib/supabase'
-
-const TYPE_LABEL = { general: '一般', female: '女性', student: '学生' }
+import { TYPE_LABEL } from '../lib/constants'
 
 const EMPTY_FORM = { name: '', customer_type: 'general', phone: '', birthday: '', notes: '' }
 
@@ -25,7 +24,7 @@ export default function Members() {
 
   async function fetchMembers(q = '') {
     setLoading(true)
-    let query = supabase.from('members').select('*').order('member_number', { ascending: false })
+    let query = supabase.from('members').select('*').order('visit_count', { ascending: false, nullsFirst: false }).order('member_number', { ascending: false })
     if (q) {
       const numVal = parseInt(q)
       const filters = [`name.ilike.%${q}%`, `phone.ilike.%${q}%`]

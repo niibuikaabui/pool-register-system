@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
+import { TYPE_LABEL } from '../lib/constants'
+import { fmtElapsed } from '../lib/utils'
 
-const STATUS_LABEL = { empty: '空き', in_use: '使用中' }
 const STATUS_COLOR = {
   empty: 'bg-gray-100 border-gray-300 text-gray-700',
   in_use: 'bg-green-50 border-green-400 text-green-800',
@@ -22,40 +23,48 @@ export default function Dashboard() {
       .channel('tables')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'tables' }, fetchData)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'sessions' }, fetchData)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'time_blocks' }, fetchData)
       .subscribe()
     return () => supabase.removeChannel(channel)
   }, [])
 
   async function fetchData() {
-    const [{ data: tbl }, { data: sess }] = await Promise.all([
+    const [{ data: tbl }, { data: sess }, { data: activeBlocks }] = await Promise.all([
       supabase.from('tables').select('*').order('table_number'),
       supabase.from('sessions').select('*, members(name, member_number), guest_name').eq('is_paid', false),
+      supabase.from('time_blocks').select('session_id').is('ended_at', null),
     ])
     setTables(tbl || [])
+
+    // セッションIDのセット（プレー中）
+    const playingSessionIds = new Set((activeBlocks || []).map(b => b.session_id))
+
     const map = {}
     ;(sess || []).forEach(s => {
       if (!map[s.table_id]) map[s.table_id] = []
-      map[s.table_id].push(s)
+      map[s.table_id].push({ ...s, isPlaying: playingSessionIds.has(s.id) })
     })
     setSessions(map)
     setLoading(false)
   }
 
-  function startSession(tableId) {
-    navigate(`/checkout/new?table=${tableId}`)
+  async function startSession(tableId) {
+    const { data, error } = await supabase.from('sessions').insert({
+      table_id: tableId,
+      customer_type: 'general',
+      pricing_type: 'hourly_multi',
+      started_at: new Date().toISOString(),
+      is_paid: false,
+    }).select().single()
+    if (error) { alert('伝票作成エラー: ' + error.message); return }
+    await supabase.from('tables').update({ status: 'in_use' }).eq('id', tableId)
+    navigate(`/checkout/${data.id}?table=${tableId}`)
   }
 
   async function updateNote(tableId) {
     await supabase.from('tables').update({ note: noteText }).eq('id', tableId)
     setEditNote(null)
     fetchData()
-  }
-
-  function formatElapsed(startedAt) {
-    const diff = Math.floor((Date.now() - new Date(startedAt)) / 60000)
-    const h = Math.floor(diff / 60)
-    const m = diff % 60
-    return h > 0 ? `${h}時間${m}分` : `${m}分`
   }
 
   if (loading) return <div className="flex justify-center py-20 text-gray-400">読み込み中...</div>
@@ -70,76 +79,72 @@ export default function Dashboard() {
       </div>
 
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
-        {tables.filter(t => t.table_number <= 5 || t.table_number === 99).map(table => {
+        {tables.map(table => {
           const isOther = table.table_number === 99
           const slips = sessions[table.id] || []
           const status = slips.length > 0 ? 'in_use' : 'empty'
+          const playingCount = slips.filter(s => s.isPlaying).length
+          function handleCardClick() {
+            if (status === 'empty') {
+              startSession(table.id)
+            } else {
+              navigate(`/table/${table.id}`)
+            }
+          }
+
           return (
             <div
               key={table.id}
-              className={`border-2 rounded-xl p-3 flex flex-col gap-2 ${STATUS_COLOR[status]}`}
+              onClick={handleCardClick}
+              className={`border-2 rounded-xl p-3 flex flex-col gap-2 cursor-pointer transition-opacity active:opacity-70 ${STATUS_COLOR[status]}`}
             >
               <div className="flex justify-between items-center">
                 <span className="font-bold text-lg">{isOther ? 'その他' : `#${table.table_number}`}</span>
-                <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
-                  status === 'in_use' ? 'bg-green-200 text-green-800' : 'bg-gray-200 text-gray-600'
-                }`}>
-                  {STATUS_LABEL[status]}
-                </span>
+                {slips.length > 0 && (
+                  <div className="flex items-center gap-2 text-xs font-medium">
+                    <span className="text-green-700">📋 {slips.length}件</span>
+                    <span className={playingCount > 0 ? 'text-blue-600' : 'text-gray-400'}>🎱 {playingCount}人</span>
+                  </div>
+                )}
               </div>
 
               {slips.length > 0 && (
                 <div className="text-xs text-gray-600">
-                  <div className="font-medium text-green-700">伝票 {slips.length} 件</div>
                   {slips.map((s, i) => (
-                    <div key={s.id} className="text-gray-500 mt-0.5">
-                      {i + 1}. ⏱{formatElapsed(s.started_at)}
-                      {' '}{ { general: '一般', female: '女性', student: '学生' }[s.customer_type]}
-                      {s.members && ` 👤${s.members.name}`}
-                      {!s.members && s.guest_name && ` 👤${s.guest_name}`}
+                    <div key={s.id} className="text-gray-500 mt-0.5 flex items-center gap-1">
+                      <span>{i + 1}. ⏱{fmtElapsed(s.started_at)}</span>
+                      <span>{TYPE_LABEL[s.customer_type]}</span>
+                      {s.members && <span>👤{s.members.name}</span>}
+                      {!s.members && s.guest_name && <span>👤{s.guest_name}</span>}
+                      {s.isPlaying && <span className="text-blue-500 font-medium">▶</span>}
                     </div>
                   ))}
                 </div>
               )}
 
-              {/* Note */}
-              {editNote === table.id ? (
-                <div className="flex gap-1">
-                  <input
-                    autoFocus
-                    value={noteText}
-                    onChange={e => setNoteText(e.target.value)}
-                    className="flex-1 border rounded px-2 py-1 text-xs text-gray-800"
-                    placeholder="備考を入力"
-                  />
-                  <button onClick={() => updateNote(table.id)} className="bg-green-600 text-white px-2 rounded text-xs">✓</button>
-                  <button onClick={() => setEditNote(null)} className="bg-gray-300 px-2 rounded text-xs">✕</button>
-                </div>
-              ) : (
-                <button
-                  onClick={() => { setEditNote(table.id); setNoteText(table.note || '') }}
-                  className="text-left text-xs text-gray-400 hover:text-gray-600 truncate"
-                >
-                  {table.note || '📝 備考追加'}
-                </button>
-              )}
-
-              {/* Actions */}
-              {status === 'empty' ? (
-                <button
-                  onClick={() => startSession(table.id)}
-                  className="mt-1 bg-green-700 hover:bg-green-600 text-white text-sm font-medium rounded-lg py-2 transition-colors"
-                >
-                  スタート
-                </button>
-              ) : (
-                <button
-                  onClick={() => navigate(`/table/${table.id}`)}
-                  className="mt-1 bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium rounded-lg py-2 transition-colors"
-                >
-                  伝票一覧
-                </button>
-              )}
+              {/* Note — クリックイベントを止めてカード遷移と干渉しないようにする */}
+              <div onClick={e => e.stopPropagation()}>
+                {editNote === table.id ? (
+                  <div className="flex gap-1">
+                    <input
+                      autoFocus
+                      value={noteText}
+                      onChange={e => setNoteText(e.target.value)}
+                      className="flex-1 border rounded px-2 py-1 text-xs text-gray-800"
+                      placeholder="備考を入力"
+                    />
+                    <button onClick={() => updateNote(table.id)} className="bg-green-600 text-white px-2 rounded text-xs">✓</button>
+                    <button onClick={() => setEditNote(null)} className="bg-gray-300 px-2 rounded text-xs">✕</button>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => { setEditNote(table.id); setNoteText(table.note || '') }}
+                    className="text-left text-xs text-gray-400 hover:text-gray-600 truncate w-full"
+                  >
+                    {table.note || '📝 備考追加'}
+                  </button>
+                )}
+              </div>
             </div>
           )
         })}

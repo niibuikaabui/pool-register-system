@@ -8,6 +8,7 @@ import TableSlips from './pages/TableSlips'
 import Members from './pages/Members'
 import Reports from './pages/Reports'
 import Master from './pages/Master'
+import ResetPassword from './pages/ResetPassword'
 
 function ProtectedRoute({ children, adminOnly = false }) {
   const { user, profile, loading } = useAuth()
@@ -18,8 +19,9 @@ function ProtectedRoute({ children, adminOnly = false }) {
 }
 
 function AppRoutes() {
-  const { user, loading } = useAuth()
+  const { user, loading, isRecovery } = useAuth()
   if (loading) return <div className="flex justify-center items-center min-h-screen text-gray-400">読み込み中...</div>
+  if (isRecovery) return <ResetPassword />
 
   return (
     <Routes>

@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
-
-const TYPE_LABEL = { general: '一般', female: '女性', student: '学生' }
+import { TYPE_LABEL } from '../lib/constants'
 
 function getBusinessDate(datetimeStr, businessStartTime) {
   // businessStartTime: "HH:MM:SS" or "HH:MM"

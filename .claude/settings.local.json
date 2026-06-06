@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__Claude_in_Chrome__tabs_context_mcp",
+      "mcp__Claude_Preview__preview_start",
+      "PowerShell($env:PATH = \"C:\\\\Program Files\\\\nodejs;\" + $env:PATH; cd \"C:\\\\claude-cowork\\\\pool_register_system\"; node -e \"require\\('child_process'\\).execSync\\('npx vite build && npx gh-pages -d dist', {stdio:'inherit'}\\)\" 2>&1)",
+      "Bash(npm run *)",
+      "PowerShell($env:PATH = \"C:\\\\Program Files\\\\nodejs;$env:PATH\"; cd C:\\\\claude-cowork\\\\pool_register_system; & \"C:\\\\Program Files\\\\nodejs\\\\npm.cmd\" run build 2>&1 | Select-Object -Last 20)"
+    ]
+  }
+}

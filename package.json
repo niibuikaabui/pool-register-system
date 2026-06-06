@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "deploy": "npm run build && gh-pages -d dist"
+    "deploy": "npm run build && node -e \"require('fs').writeFileSync('dist/.nojekyll','')\" && gh-pages -d dist -t"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.0",
