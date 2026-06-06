@@ -89,7 +89,7 @@ export default function Dashboard() {
                   <div>⏱ {formatElapsed(session.started_at)}</div>
                   {session.members && <div>👤 {session.members.name}</div>}
                   <div className="text-gray-500">
-                    {session.pricing_type === 'freetime' ? 'フリータイム' : '時間制'} /
+                    {{ hourly_multi: '時間制（複数）', hourly_single: '時間制（一人）', freetime: 'フリータイム' }[session.pricing_type]} /
                     {{ general: '一般', female: '女性', student: '学生' }[session.customer_type]}
                   </div>
                 </div>

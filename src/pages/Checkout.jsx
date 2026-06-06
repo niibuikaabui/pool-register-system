@@ -26,7 +26,7 @@ export default function Checkout() {
 
   // Session state
   const [customerType, setCustomerType] = useState('general')
-  const [pricingType, setPricingType] = useState('hourly')
+  const [pricingType, setPricingType] = useState('hourly_multi')
   const [startedAt, setStartedAt] = useState(toLocalDatetimeStr(new Date()))
   const [endedAt, setEndedAt] = useState('')
   const [memberId, setMemberId] = useState(null)
@@ -83,6 +83,8 @@ export default function Checkout() {
     if (mins <= 0) return 0
     return roundUp50((rate.price_per_minute || 0) * mins)
   }
+
+  const PRICING_LABEL = { hourly_multi: '時間制（複数）', hourly_single: '時間制（一人）', freetime: 'フリータイム' }
 
   function calcFoodFee() {
     return orderItems.reduce((sum, i) => sum + i.unit_price * i.quantity, 0)
@@ -146,10 +148,13 @@ export default function Checkout() {
       started_at: new Date(startedAt).toISOString(),
       is_paid: false,
     }).select().single()
-    if (!error) {
-      await supabase.from('tables').update({ status: 'in_use' }).eq('id', tableId)
-      navigate(`/checkout/${data.id}`, { replace: true })
+    if (error) {
+      alert('セッション開始エラー: ' + error.message)
+      setSaving(false)
+      return
     }
+    await supabase.from('tables').update({ status: 'in_use' }).eq('id', tableId)
+    navigate(`/checkout/${data.id}`, { replace: true })
     setSaving(false)
   }
 
@@ -231,17 +236,19 @@ export default function Checkout() {
           <div>
             <label className="text-sm text-gray-600 mb-1 block">種別</label>
             <div className="flex gap-2">
-              {[['hourly', '時間制'], ['freetime', 'フリータイム']].map(([v, l]) => (
-                <button
-                  key={v}
-                  onClick={() => setPricingType(v)}
-                  className={`flex-1 py-2 rounded-lg text-sm font-medium border ${
-                    pricingType === v ? 'bg-blue-600 text-white border-blue-600' : 'border-gray-300 text-gray-700'
-                  }`}
-                >
-                  {l}
-                </button>
-              ))}
+              <div className="flex gap-2">
+                {['hourly_multi', 'hourly_single', 'freetime'].map(v => (
+                  <button
+                    key={v}
+                    onClick={() => setPricingType(v)}
+                    className={`flex-1 py-2 rounded-lg text-xs font-medium border whitespace-nowrap ${
+                      pricingType === v ? 'bg-blue-600 text-white border-blue-600' : 'border-gray-300 text-gray-700'
+                    }`}
+                  >
+                    {PRICING_LABEL[v]}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
         </div>
@@ -250,7 +257,7 @@ export default function Checkout() {
         {getRate() && (
           <div className="mt-2 text-sm text-gray-500">
             {pricingType === 'hourly'
-              ? `料金: ${((getRate().price_per_minute || 0) * 60).toLocaleString()}円/時`
+              ? `${PRICING_LABEL[pricingType]}: ${((getRate().price_per_minute || 0) * 60).toLocaleString()}円/時`
               : `フリータイム: ${getRate().freetime_price?.toLocaleString()}円`}
           </div>
         )}
@@ -277,7 +284,7 @@ export default function Checkout() {
               </button>
             </div>
           </div>
-          {!isNew && pricingType === 'hourly' && (
+          {!isNew && pricingType !== 'freetime' && (
             <div>
               <label className="text-sm text-gray-600 mb-1 block">終了</label>
               <div className="flex gap-2">
