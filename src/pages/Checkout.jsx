@@ -519,7 +519,7 @@ export default function Checkout() {
               {['general', 'female', 'university', 'high_school'].map(t => (
                 <button
                   key={t}
-                  onClick={() => !activeBlock && setCustomerType(t)}
+                  onClick={() => { if (!activeBlock) { setCustomerType(t); if (t === 'high_school' && pricingType === 'freetime') setPricingType('hourly_multi') } }}
                   disabled={!!activeBlock}
                   className={`flex-1 py-2 rounded-lg text-sm font-medium border ${
                     customerType === t ? 'bg-green-700 text-white border-green-700' : 'border-gray-300 text-gray-700'
@@ -533,18 +533,23 @@ export default function Checkout() {
           <div>
             <label className="text-sm text-gray-600 mb-1 block">種別</label>
             <div className="flex gap-1">
-              {['hourly_multi', 'hourly_single', 'freetime'].map(v => (
-                <button
-                  key={v}
-                  onClick={() => !activeBlock && setPricingType(v)}
-                  disabled={!!activeBlock}
-                  className={`flex-1 py-2 rounded-lg text-xs font-medium border whitespace-nowrap ${
-                    pricingType === v ? 'bg-blue-600 text-white border-blue-600' : 'border-gray-300 text-gray-700'
-                  } ${activeBlock ? 'opacity-50 cursor-not-allowed' : ''}`}
-                >
-                  {PRICING_LABEL[v]}
-                </button>
-              ))}
+              {['hourly_multi', 'hourly_single', 'freetime'].map(v => {
+                const disabledFreetime = v === 'freetime' && customerType === 'high_school'
+                const isDisabled = !!activeBlock || disabledFreetime
+                return (
+                  <button
+                    key={v}
+                    onClick={() => !isDisabled && setPricingType(v)}
+                    disabled={isDisabled}
+                    title={disabledFreetime ? '高校生はフリータイム不可' : undefined}
+                    className={`flex-1 py-2 rounded-lg text-xs font-medium border whitespace-nowrap ${
+                      pricingType === v ? 'bg-blue-600 text-white border-blue-600' : 'border-gray-300 text-gray-700'
+                    } ${isDisabled ? 'opacity-30 cursor-not-allowed' : ''}`}
+                  >
+                    {PRICING_LABEL[v]}
+                  </button>
+                )
+              })}
             </div>
           </div>
         </div>
