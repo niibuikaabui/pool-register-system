@@ -106,31 +106,6 @@ export default function Dashboard() {
         </span>
       </div>
 
-      {/* まもなく終了リスト */}
-      {soonEndingSessions.length > 0 && (
-        <div className="bg-red-50 border border-red-200 rounded-xl p-3 mb-4">
-          <p className="text-xs font-bold text-red-600 mb-2">⚠ フリータイム まもなく終了</p>
-          <div className="flex flex-col gap-1">
-            {soonEndingSessions.map(s => {
-              const badge = freeTimeBadge(s.remaining)
-              const table = tables.find(t => t.id === s.table_id)
-              const tableLabel = table ? (table.table_number === 99 ? 'その他' : `#${table.table_number}台`) : ''
-              const name = s.members?.name || s.guest_name || ''
-              return (
-                <button
-                  key={s.id}
-                  onClick={() => navigate(`/checkout/${s.id}?table=${s.table_id}`)}
-                  className="flex items-center justify-between text-xs bg-white rounded-lg px-3 py-2 hover:bg-red-50 transition-colors"
-                >
-                  <span className="text-gray-700 font-medium">{tableLabel}{name ? ` · ${name}` : ''}</span>
-                  <span className={`px-2 py-0.5 rounded-full text-xs ${badge.cls}`}>{badge.label}</span>
-                </button>
-              )
-            })}
-          </div>
-        </div>
-      )}
-
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
         {tables.filter(table => table.table_number < 6 || table.table_number === 99).map(table => {
           const isOther = table.table_number === 99
@@ -222,6 +197,31 @@ export default function Dashboard() {
           )
         })}
       </div>
+
+      {/* まもなく終了リスト */}
+      {soonEndingSessions.length > 0 && (
+        <div className="bg-red-50 border border-red-200 rounded-xl p-3 mt-4">
+          <p className="text-xs font-bold text-red-600 mb-2">⚠ フリータイム まもなく終了</p>
+          <div className="flex flex-col gap-1">
+            {soonEndingSessions.map(s => {
+              const badge = freeTimeBadge(s.remaining)
+              const table = tables.find(t => t.id === s.table_id)
+              const tableLabel = table ? (table.table_number === 99 ? 'その他' : `#${table.table_number}台`) : ''
+              const name = s.members?.name || s.guest_name || ''
+              return (
+                <button
+                  key={s.id}
+                  onClick={() => navigate(`/checkout/${s.id}?table=${s.table_id}`)}
+                  className="flex items-center justify-between text-xs bg-white rounded-lg px-3 py-2 hover:bg-red-50 transition-colors"
+                >
+                  <span className="text-gray-700 font-medium">{tableLabel}{name ? ` · ${name}` : ''}</span>
+                  <span className={`px-2 py-0.5 rounded-full text-xs ${badge.cls}`}>{badge.label}</span>
+                </button>
+              )
+            })}
+          </div>
+        </div>
+      )}
     </div>
   )
 }
