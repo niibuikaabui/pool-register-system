@@ -2,43 +2,45 @@
  * Supabase データ復元スクリプト
  *
  * 使い方:
- *   node scripts/restore.js backups/backup_2026-06-06.json
+ *   node scripts/restore.js                                      # 最新バックアップを復元
+ *   node scripts/restore.js backups/backup_2026-06-07_1200.json  # 指定ファイルを復元
+ *   node scripts/restore.js list                                  # バックアップ一覧を表示
  *
- * 注意:
- *   - 既存データは削除されてからバックアップデータで上書きされます
- *   - service_role キーが必要です（RLSをバイパスするため）
- *   - 実行前に必ず対象ファイルを確認してください
+ * 前提:
+ *   .env.local に SUPABASE_SERVICE_KEY=... を記載
  */
 
 import { createClient } from '@supabase/supabase-js'
-import { readFileSync, existsSync } from 'fs'
+import { readFileSync, existsSync, readdirSync } from 'fs'
+import { join, dirname } from 'path'
+import { fileURLToPath } from 'url'
 import { createInterface } from 'readline'
 
-const SUPABASE_URL = 'https://ggedrhvdqpaorkklpdcw.supabase.co'
+const __dirname = dirname(fileURLToPath(import.meta.url))
+const projectRoot = join(__dirname, '..')
 
-// service_role キーが必要（Supabase Dashboard > Settings > API > service_role key）
+// .env.local から環境変数を読み込む
+function loadEnv() {
+  const envPath = join(projectRoot, '.env.local')
+  if (existsSync(envPath)) {
+    readFileSync(envPath, 'utf8').split('\n').forEach(line => {
+      const [key, ...vals] = line.split('=')
+      if (key && vals.length) process.env[key.trim()] = vals.join('=').trim()
+    })
+  }
+}
+loadEnv()
+
+const SUPABASE_URL = 'https://ggedrhvdqpaorkklpdcw.supabase.co'
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY
 
-// 復元順序（外部キー制約のため依存元から先に復元）
 const RESTORE_ORDER = [
-  'tables',
-  'members',
-  'menu_items',
-  'pricing_master',
-  'shop_settings',
-  'sessions',
-  'order_items',
+  'tables', 'members', 'menu_items', 'pricing_master',
+  'shop_settings', 'sessions', 'order_items',
 ]
-
-// 削除順序（外部キー制約のため依存先から先に削除）
 const DELETE_ORDER = [
-  'order_items',
-  'sessions',
-  'members',
-  'menu_items',
-  'pricing_master',
-  'shop_settings',
-  'tables',
+  'order_items', 'sessions', 'members', 'menu_items',
+  'pricing_master', 'shop_settings', 'tables',
 ]
 
 function prompt(question) {
@@ -46,73 +48,80 @@ function prompt(question) {
   return new Promise(resolve => rl.question(question, answer => { rl.close(); resolve(answer) }))
 }
 
-async function restore() {
-  // 引数チェック
-  const backupFile = process.argv[2]
-  if (!backupFile) {
-    console.error('❌ バックアップファイルを指定してください')
-    console.error('   使い方: node scripts/restore.js backups/backup_2026-06-06.json')
-    process.exit(1)
-  }
+function listBackups() {
+  const backupDir = join(projectRoot, 'backups')
+  if (!existsSync(backupDir)) { console.log('バックアップが1件もありません。'); return [] }
+  const files = readdirSync(backupDir)
+    .filter(f => f.endsWith('.json'))
+    .sort()
+    .reverse()
+  if (files.length === 0) { console.log('バックアップが1件もありません。'); return [] }
+  console.log('\n📂 バックアップ一覧（新しい順）:')
+  files.forEach((f, i) => {
+    const marker = i === 0 ? ' ← 最新' : ''
+    console.log(`  ${String(i+1).padStart(2)}. ${f}${marker}`)
+  })
+  return files
+}
 
-  if (!existsSync(backupFile)) {
-    console.error(`❌ ファイルが見つかりません: ${backupFile}`)
-    process.exit(1)
-  }
+function getLatestBackup() {
+  const backupDir = join(projectRoot, 'backups')
+  if (!existsSync(backupDir)) return null
+  const files = readdirSync(backupDir).filter(f => f.endsWith('.json')).sort()
+  return files.length ? join(backupDir, files[files.length - 1]) : null
+}
+
+async function restore() {
+  const arg = process.argv[2]
+
+  // 一覧表示
+  if (arg === 'list') { listBackups(); return }
 
   if (!SUPABASE_SERVICE_KEY) {
     console.error('❌ SUPABASE_SERVICE_KEY が設定されていません')
-    console.error('   実行方法: SUPABASE_SERVICE_KEY=your_key node scripts/restore.js <file>')
+    console.error('   .env.local に以下を追記してください:')
+    console.error('   SUPABASE_SERVICE_KEY=your_service_role_key')
     process.exit(1)
   }
 
-  // バックアップ内容を読み込み
+  // ファイル特定
+  let backupFile = arg
+  if (!backupFile) {
+    backupFile = getLatestBackup()
+    if (!backupFile) { console.error('❌ バックアップが見つかりません'); process.exit(1) }
+    console.log(`📂 最新バックアップを使用: ${backupFile}`)
+  }
+  if (!existsSync(backupFile)) {
+    console.error(`❌ ファイルが見つかりません: ${backupFile}`); process.exit(1)
+  }
+
   const backup = JSON.parse(readFileSync(backupFile, 'utf8'))
-  console.log(`📂 バックアップファイル: ${backupFile}`)
-  console.log(`📅 エクスポート日時: ${backup.exportedAt}`)
+  console.log(`\n📅 エクスポート日時: ${backup.exportedAt}`)
+  if (backup.label) console.log(`🏷  ラベル: ${backup.label}`)
   console.log('')
-
-  // 件数確認
   for (const table of RESTORE_ORDER) {
-    const count = backup.data[table]?.length ?? 0
-    console.log(`   ${table}: ${count}件`)
+    console.log(`   ${table}: ${backup.data[table]?.length ?? 0}件`)
   }
 
-  // 確認プロンプト
-  console.log('')
-  console.log('⚠️  警告: 既存のデータはすべて削除されます。')
+  console.log('\n⚠️  警告: 既存のデータはすべて削除されます。')
   const answer = await prompt('本当に復元しますか？ (yes と入力で実行): ')
-  if (answer.trim() !== 'yes') {
-    console.log('キャンセルしました。')
-    process.exit(0)
-  }
+  if (answer.trim() !== 'yes') { console.log('キャンセルしました。'); process.exit(0) }
 
   const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY)
 
-  // 既存データを削除
   console.log('\n🗑️  既存データを削除中...')
   for (const table of DELETE_ORDER) {
     const { error } = await supabase.from(table).delete().neq('id', '00000000-0000-0000-0000-000000000000')
-    if (error) {
-      console.error(`❌ ${table} の削除に失敗: ${error.message}`)
-      process.exit(1)
-    }
+    if (error) { console.error(`❌ ${table} の削除に失敗: ${error.message}`); process.exit(1) }
     console.log(`   ✅ ${table} 削除完了`)
   }
 
-  // データを復元
   console.log('\n📥 データを復元中...')
   for (const table of RESTORE_ORDER) {
     const rows = backup.data[table]
-    if (!rows || rows.length === 0) {
-      console.log(`   ⏭️  ${table}: データなし（スキップ）`)
-      continue
-    }
+    if (!rows || rows.length === 0) { console.log(`   ⏭️  ${table}: データなし（スキップ）`); continue }
     const { error } = await supabase.from(table).insert(rows)
-    if (error) {
-      console.error(`❌ ${table} の復元に失敗: ${error.message}`)
-      process.exit(1)
-    }
+    if (error) { console.error(`❌ ${table} の復元に失敗: ${error.message}`); process.exit(1) }
     console.log(`   ✅ ${table}: ${rows.length}件 復元完了`)
   }
 
