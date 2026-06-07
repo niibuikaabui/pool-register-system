@@ -696,10 +696,14 @@ export default function Checkout() {
                         取消
                       </button>
                     )}
-                    <span className={`font-medium text-right ${item.cancelled ? 'text-gray-400 line-through' : item.isActive ? 'text-orange-500' : 'text-gray-600'}`}>
-                      {item.isActive && <span className="text-xs mr-1">概算</span>}
-                      ¥{item.fee.toLocaleString()}
-                    </span>
+                    {item.type === 'block' && pricingType === 'freetime' ? (
+                      <span className="text-xs text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full">フリータイム</span>
+                    ) : (
+                      <span className={`font-medium text-right ${item.cancelled ? 'text-gray-400 line-through' : item.isActive ? 'text-orange-500' : 'text-gray-600'}`}>
+                        {item.isActive && <span className="text-xs mr-1">概算</span>}
+                        ¥{item.fee.toLocaleString()}
+                      </span>
+                    )}
                   </div>
                 </div>
                 {/* 時間編集UI */}
