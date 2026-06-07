@@ -38,18 +38,12 @@ export default function Layout({ children }) {
             >
               <span className="text-xl">☰</span>
             </button>
-            <span className="font-bold text-lg">🎱 ビリヤード レジ</span>
+            <button onClick={() => navigate('/')} className="font-bold text-lg hover:text-green-200 transition-colors">🎱 ビリヤード レジ</button>
           </div>
           <div className="flex items-center gap-3">
             <span className="text-sm text-green-200 hidden sm:block">
               {profile?.name} ({profile?.role === 'admin' ? '管理者' : 'スタッフ'})
             </span>
-            <button
-              onClick={handleLogout}
-              className="bg-green-700 hover:bg-green-600 px-3 py-1 rounded text-sm"
-            >
-              ログアウト
-            </button>
           </div>
         </div>
 
@@ -71,6 +65,13 @@ export default function Layout({ children }) {
                 <span>{item.label}</span>
               </Link>
             ))}
+            <button
+              onClick={handleLogout}
+              className="flex items-center gap-2 px-3 py-2 rounded hover:bg-green-700 text-green-300 text-xs mt-2"
+            >
+              <span>🚪</span>
+              <span>ログアウト</span>
+            </button>
           </nav>
         )}
       </header>
@@ -90,6 +91,14 @@ export default function Layout({ children }) {
               <span className="text-sm">{item.label}</span>
             </Link>
           ))}
+          <div className="flex-1" />
+          <button
+            onClick={handleLogout}
+            className="flex items-center gap-2 px-4 py-2 hover:bg-green-700 transition-colors text-green-400 text-xs"
+          >
+            <span>🚪</span>
+            <span>ログアウト</span>
+          </button>
         </aside>
 
         {/* Main content */}

@@ -89,13 +89,13 @@ export default function Dashboard() {
 
   if (loading) return <div className="flex justify-center py-20 text-gray-400">読み込み中...</div>
 
-  // まもなく終了（30分以内）のフリータイム一覧
+  // フリータイム中のセッション一覧（残り時間順）
   const soonEndingSessions = Object.values(sessions).flat().filter(s =>
     s.pricing_type === 'freetime' && s.freetimeStartedAt && s.isPlaying
   ).map(s => ({
     ...s,
     remaining: freeTimeRemaining(s.freetimeStartedAt, FREETIME_MINUTES),
-  })).filter(s => s.remaining <= 30).sort((a, b) => a.remaining - b.remaining)
+  })).sort((a, b) => a.remaining - b.remaining)
 
   return (
     <div>
@@ -200,8 +200,8 @@ export default function Dashboard() {
 
       {/* まもなく終了リスト */}
       {soonEndingSessions.length > 0 && (
-        <div className="bg-red-50 border border-red-200 rounded-xl p-3 mt-4">
-          <p className="text-xs font-bold text-red-600 mb-2">⚠ フリータイム まもなく終了</p>
+        <div className="bg-orange-50 border border-orange-200 rounded-xl p-3 mt-4">
+          <p className="text-xs font-bold text-orange-600 mb-2">🎱 フリータイム中</p>
           <div className="flex flex-col gap-1">
             {soonEndingSessions.map(s => {
               const badge = freeTimeBadge(s.remaining)
@@ -212,7 +212,7 @@ export default function Dashboard() {
                 <button
                   key={s.id}
                   onClick={() => navigate(`/checkout/${s.id}?table=${s.table_id}`)}
-                  className="flex items-center justify-between text-xs bg-white rounded-lg px-3 py-2 hover:bg-red-50 transition-colors"
+                  className="flex items-center justify-between text-xs bg-white rounded-lg px-3 py-2 hover:bg-orange-50 transition-colors"
                 >
                   <span className="text-gray-700 font-medium">{tableLabel}{name ? ` · ${name}` : ''}</span>
                   <span className={`px-2 py-0.5 rounded-full text-xs ${badge.cls}`}>{badge.label}</span>
