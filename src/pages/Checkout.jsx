@@ -563,8 +563,8 @@ export default function Checkout() {
           </p>
         )}
 
-        {/* 時間ブロック（時間制の場合のみ） */}
-        {pricingType !== 'freetime' && (
+        {/* 時間ブロック */}
+        {(
           <div className="border-t pt-3 mt-1">
             {activeBlock ? (
               <div>
@@ -572,13 +572,17 @@ export default function Checkout() {
                   <div className="text-sm">
                     <span className="font-semibold text-green-800">▶ プレー中</span>
                     <span className="text-gray-600 ml-3">{fmtTime(activeBlock.started_at)} 開始</span>
-                    <span className="text-gray-500 ml-2">経過 {fmtElapsed(activeBlock.started_at, null)}</span>
-                    <button
-                      onClick={() => openEditBlock(activeBlock)}
-                      className="ml-3 text-xs text-blue-400 hover:text-blue-600 border border-blue-200 hover:border-blue-400 px-2 py-0.5 rounded transition-colors"
-                    >
-                      開始時刻を修正
-                    </button>
+                    {pricingType !== 'freetime' && (
+                      <>
+                        <span className="text-gray-500 ml-2">経過 {fmtElapsed(activeBlock.started_at, null)}</span>
+                        <button
+                          onClick={() => openEditBlock(activeBlock)}
+                          className="ml-3 text-xs text-blue-400 hover:text-blue-600 border border-blue-200 hover:border-blue-400 px-2 py-0.5 rounded transition-colors"
+                        >
+                          開始時刻を修正
+                        </button>
+                      </>
+                    )}
                   </div>
                   <button
                     onClick={() => endTimeBlock(activeBlock.id)}
