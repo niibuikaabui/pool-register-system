@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
-import { TYPE_LABEL } from '../lib/constants'
-import { fmtElapsed } from '../lib/utils'
+import { TYPE_LABEL, FREETIME_MINUTES } from '../lib/constants'
+import { fmtElapsed, freeTimeRemaining, freeTimeBadge } from '../lib/utils'
 
 const STATUS_COLOR = {
   empty: 'bg-gray-100 border-gray-300 text-gray-700',
@@ -15,6 +15,7 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true)
   const [editNote, setEditNote] = useState(null)
   const [noteText, setNoteText] = useState('')
+  const [tick, setTick] = useState(0)
   const navigate = useNavigate()
 
   useEffect(() => {
@@ -28,21 +29,40 @@ export default function Dashboard() {
     return () => supabase.removeChannel(channel)
   }, [])
 
+  // 1分ごとに残り時間を再計算
+  useEffect(() => {
+    const t = setInterval(() => setTick(n => n + 1), 60000)
+    return () => clearInterval(t)
+  }, [])
+  // eslint-disable-next-line no-unused-vars
+  const _tick = tick
+
   async function fetchData() {
-    const [{ data: tbl }, { data: sess }, { data: activeBlocks }] = await Promise.all([
+    const [{ data: tbl }, { data: sess }, { data: activeBlocks }, { data: allBlocks }] = await Promise.all([
       supabase.from('tables').select('*').order('table_number'),
       supabase.from('sessions').select('*, members(name, member_number), guest_name').eq('is_paid', false),
       supabase.from('time_blocks').select('session_id').is('ended_at', null),
+      supabase.from('time_blocks').select('session_id, started_at').order('started_at'),
     ])
     setTables(tbl || [])
 
     // セッションIDのセット（プレー中）
     const playingSessionIds = new Set((activeBlocks || []).map(b => b.session_id))
 
+    // フリータイム開始時刻（最初のブロック）をセッションIDごとに取得
+    const freetimeStartMap = {}
+    ;(allBlocks || []).forEach(b => {
+      if (!freetimeStartMap[b.session_id]) freetimeStartMap[b.session_id] = b.started_at
+    })
+
     const map = {}
     ;(sess || []).forEach(s => {
       if (!map[s.table_id]) map[s.table_id] = []
-      map[s.table_id].push({ ...s, isPlaying: playingSessionIds.has(s.id) })
+      map[s.table_id].push({
+        ...s,
+        isPlaying: playingSessionIds.has(s.id),
+        freetimeStartedAt: freetimeStartMap[s.id] || null,
+      })
     })
     setSessions(map)
     setLoading(false)
@@ -69,6 +89,14 @@ export default function Dashboard() {
 
   if (loading) return <div className="flex justify-center py-20 text-gray-400">読み込み中...</div>
 
+  // まもなく終了（30分以内）のフリータイム一覧
+  const soonEndingSessions = Object.values(sessions).flat().filter(s =>
+    s.pricing_type === 'freetime' && s.freetimeStartedAt
+  ).map(s => ({
+    ...s,
+    remaining: freeTimeRemaining(s.freetimeStartedAt, FREETIME_MINUTES),
+  })).filter(s => s.remaining <= 30).sort((a, b) => a.remaining - b.remaining)
+
   return (
     <div>
       <div className="flex justify-between items-center mb-4">
@@ -77,6 +105,31 @@ export default function Dashboard() {
           使用中: {Object.keys(sessions).length} 台
         </span>
       </div>
+
+      {/* まもなく終了リスト */}
+      {soonEndingSessions.length > 0 && (
+        <div className="bg-red-50 border border-red-200 rounded-xl p-3 mb-4">
+          <p className="text-xs font-bold text-red-600 mb-2">⚠ フリータイム まもなく終了</p>
+          <div className="flex flex-col gap-1">
+            {soonEndingSessions.map(s => {
+              const badge = freeTimeBadge(s.remaining)
+              const table = tables.find(t => t.id === s.table_id)
+              const tableLabel = table ? (table.table_number === 99 ? 'その他' : `#${table.table_number}台`) : ''
+              const name = s.members?.name || s.guest_name || ''
+              return (
+                <button
+                  key={s.id}
+                  onClick={() => navigate(`/checkout/${s.id}?table=${s.table_id}`)}
+                  className="flex items-center justify-between text-xs bg-white rounded-lg px-3 py-2 hover:bg-red-50 transition-colors"
+                >
+                  <span className="text-gray-700 font-medium">{tableLabel}{name ? ` · ${name}` : ''}</span>
+                  <span className={`px-2 py-0.5 rounded-full text-xs ${badge.cls}`}>{badge.label}</span>
+                </button>
+              )
+            })}
+          </div>
+        </div>
+      )}
 
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
         {tables.filter(table => table.table_number < 6 || table.table_number === 99).map(table => {
@@ -128,7 +181,14 @@ export default function Dashboard() {
                           {!s.members && s.guest_name && <span>👤{s.guest_name}</span>}
                           <span>{TYPE_LABEL[s.customer_type]}</span>
                         </div>
-                        {s.isPlaying && <span className="text-blue-500 font-medium">▶ {fmtElapsed(s.started_at)}</span>}
+                        {s.isPlaying && s.pricing_type !== 'freetime' && (
+                          <span className="text-blue-500 font-medium">▶ {fmtElapsed(s.started_at)}</span>
+                        )}
+                        {s.pricing_type === 'freetime' && s.freetimeStartedAt && (() => {
+                          const remaining = freeTimeRemaining(s.freetimeStartedAt, FREETIME_MINUTES)
+                          const badge = freeTimeBadge(remaining)
+                          return <span className={`px-1.5 py-0.5 rounded-full text-xs ${badge.cls}`}>{badge.label}</span>
+                        })()}
                       </div>
                     </button>
                   ))}

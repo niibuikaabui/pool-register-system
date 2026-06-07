@@ -17,3 +17,23 @@ export function fmtElapsed(startedAt, endedAt = null) {
 export function fmtTime(dateStr) {
   return new Date(dateStr).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })
 }
+
+/**
+ * フリータイムの残り分数を返す（負 = 超過）
+ * @param {string} firstStartedAt  最初のtime_blockのstarted_at
+ * @param {number} freetimeMins    フリータイム分数（デフォルト120）
+ */
+export function freeTimeRemaining(firstStartedAt, freetimeMins = 120) {
+  const elapsed = (Date.now() - new Date(firstStartedAt)) / 60000
+  return Math.round(freetimeMins - elapsed)
+}
+
+/**
+ * 残り時間に応じたスタイル情報を返す
+ */
+export function freeTimeBadge(remaining) {
+  if (remaining > 60)  return { label: `残り ${remaining}分`,       cls: 'bg-green-100 text-green-700' }
+  if (remaining > 30)  return { label: `残り ${remaining}分`,       cls: 'bg-yellow-100 text-yellow-700' }
+  if (remaining > 0)   return { label: `残り ${remaining}分 ⚠`,    cls: 'bg-red-100 text-red-600 font-bold' }
+  return               { label: `超過 ${Math.abs(remaining)}分`,    cls: 'bg-red-200 text-red-700 font-bold' }
+}

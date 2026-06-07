@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
-import { TYPE_LABEL, PRICING_LABEL } from '../lib/constants'
-import { fmtElapsed } from '../lib/utils'
+import { TYPE_LABEL, PRICING_LABEL, FREETIME_MINUTES } from '../lib/constants'
+import { fmtElapsed, freeTimeRemaining, freeTimeBadge } from '../lib/utils'
 import TableMoveModal from '../components/TableMoveModal'
 
 function roundUp50(n) { return Math.ceil(n / 50) * 50 }
@@ -55,7 +55,7 @@ export default function TableSlips() {
   }, [tableId])
 
   async function fetchData() {
-    const [{ data: tbl }, { data: sess }, { data: activeBlocks }, { data: p }, { data: tbls }] = await Promise.all([
+    const [{ data: tbl }, { data: sess }, { data: activeBlocks }, { data: p }, { data: tbls }, { data: firstBlocks }] = await Promise.all([
       supabase.from('tables').select('*').eq('id', tableId).single(),
       supabase.from('sessions')
         .select('*, members(name, member_number), guest_name, order_items(unit_price, quantity, cancelled_at)')
@@ -65,16 +65,23 @@ export default function TableSlips() {
       supabase.from('time_blocks').select('session_id, started_at').is('ended_at', null),
       supabase.from('pricing_master').select('*'),
       supabase.from('tables').select('*').order('table_number'),
+      supabase.from('time_blocks').select('session_id, started_at').order('started_at'),
     ])
     setTable(tbl)
     setPricing(p || [])
     setAllTables(tbls || [])
     const playingIds = new Set((activeBlocks || []).map(b => b.session_id))
     const playingStart = Object.fromEntries((activeBlocks || []).map(b => [b.session_id, b.started_at]))
+    // フリータイム開始時刻（最初のブロック）
+    const freetimeStartMap = {}
+    ;(firstBlocks || []).forEach(b => {
+      if (!freetimeStartMap[b.session_id]) freetimeStartMap[b.session_id] = b.started_at
+    })
     setSlips((sess || []).map(s => ({
       ...s,
       isPlaying: playingIds.has(s.id),
       playStartedAt: playingStart[s.id] || null,
+      freetimeStartedAt: freetimeStartMap[s.id] || null,
     })))
     setLoading(false)
   }
@@ -239,10 +246,10 @@ export default function TableSlips() {
                       <span className="text-xs bg-gray-100 text-gray-400 px-2 py-0.5 rounded-full">休憩中</span>
                     )}
                   </div>
-                  <div className="text-sm text-gray-500 flex gap-4">
+                  <div className="text-sm text-gray-500 flex flex-wrap gap-x-4 gap-y-1 items-center">
                     {slip.members && <span>👤 {slip.members.name}</span>}
                     {!slip.members && slip.guest_name && <span>👤 {slip.guest_name}</span>}
-                    {slip.isPlaying && (
+                    {slip.isPlaying && slip.pricing_type !== 'freetime' && (
                       <>
                         <span>⏱ {fmtElapsed(slip.playStartedAt)}</span>
                         <span className="text-gray-400">
@@ -250,6 +257,13 @@ export default function TableSlips() {
                         </span>
                       </>
                     )}
+                    {slip.pricing_type === 'freetime' && slip.freetimeStartedAt && (() => {
+                      const remaining = freeTimeRemaining(slip.freetimeStartedAt, FREETIME_MINUTES)
+                      const badge = freeTimeBadge(remaining)
+                      return (
+                        <span className={`px-2 py-0.5 rounded-full text-xs ${badge.cls}`}>{badge.label}</span>
+                      )
+                    })()}
                   </div>
                 </div>
                 <div className="text-right ml-4 shrink-0">
