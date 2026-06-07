@@ -91,7 +91,7 @@ export default function Dashboard() {
 
   // まもなく終了（30分以内）のフリータイム一覧
   const soonEndingSessions = Object.values(sessions).flat().filter(s =>
-    s.pricing_type === 'freetime' && s.freetimeStartedAt
+    s.pricing_type === 'freetime' && s.freetimeStartedAt && s.isPlaying
   ).map(s => ({
     ...s,
     remaining: freeTimeRemaining(s.freetimeStartedAt, FREETIME_MINUTES),
