@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
-import { TYPE_LABEL } from '../lib/constants'
+import { TYPE_LABEL, isFreetime } from '../lib/constants'
 
 function toLocalDateStr(dt) {
   const y = dt.getFullYear()
@@ -81,7 +81,7 @@ export default function Reports() {
         .order('ended_at'),
       supabase
         .from('order_items')
-        .select('*, menu_items(name), sessions(table_id, tables(table_number))')
+        .select('*, menu_items(name), sessions(customer_type, guest_name, checked_by, table_id, tables(table_number), members(name))')
         .not('cancelled_at', 'is', null)
         .gte('cancelled_at', from.toISOString())
         .lt('cancelled_at', to.toISOString())
@@ -99,8 +99,16 @@ export default function Reports() {
       ;(profiles || []).forEach(p => { profileMap[p.id] = p.name })
     }
 
+    // キャンセル履歴の担当者IDも profileMap に含める
+    const cancelledByIds = [...new Set((cancelled || []).map(i => i.sessions?.checked_by).filter(Boolean))]
+    const missingIds = cancelledByIds.filter(id => !profileMap[id])
+    if (missingIds.length > 0) {
+      const { data: extraProfiles } = await supabase.from('user_profiles').select('id, name').in('id', missingIds)
+      ;(extraProfiles || []).forEach(p => { profileMap[p.id] = p.name })
+    }
+
     setSessions((sess || []).map(s => ({ ...s, staff_name: profileMap[s.checked_by] ?? null })))
-    setCancelledItems(cancelled || [])
+    setCancelledItems((cancelled || []).map(i => ({ ...i, staff_name: profileMap[i.sessions?.checked_by] ?? null })))
     setLoading(false)
   }
 
@@ -125,8 +133,8 @@ export default function Reports() {
       byType[ct].count++
       byType[ct].total += s.grand_total || 0
     })
-    const hourly = list.filter(s => s.pricing_type !== 'freetime')
-    const freetime = list.filter(s => s.pricing_type === 'freetime')
+    const hourly = list.filter(s => !isFreetime(s.pricing_type))
+    const freetime = list.filter(s => isFreetime(s.pricing_type))
     return { play, food, total, count: list.length, byType, hourly, freetime }
   }
 
@@ -251,8 +259,8 @@ export default function Reports() {
           {/* Breakdown */}
           <div className="bg-white rounded-xl shadow-sm p-4 mb-4">
             <h3 className="text-sm font-semibold text-gray-600 mb-3">区分別</h3>
-            <div className="grid grid-cols-4 gap-3">
-              {['general', 'female', 'university', 'high_school'].map(ct => {
+            <div className="grid grid-cols-5 gap-3">
+              {['general', 'female', 'university', 'high_school', 'staff'].map(ct => {
                 const d = allStats.byType[ct] || { count: 0, total: 0 }
                 return (
                   <div key={ct} className="text-center">
@@ -374,6 +382,8 @@ export default function Reports() {
                   <tr>
                     <th className="text-left px-4 py-2 text-gray-600">キャンセル日時</th>
                     <th className="text-left px-3 py-2 text-gray-600">台</th>
+                    <th className="text-left px-3 py-2 text-gray-600">区分</th>
+                    <th className="text-left px-3 py-2 text-gray-600">担当</th>
                     <th className="text-left px-3 py-2 text-gray-600">商品</th>
                     <th className="text-right px-4 py-2 text-gray-600">金額</th>
                   </tr>
@@ -387,6 +397,13 @@ export default function Reports() {
                       <td className="px-3 py-2 text-gray-500">
                         {item.sessions?.tables?.table_number === 99 ? 'その他' : `#${item.sessions?.tables?.table_number ?? '-'}`}
                       </td>
+                      <td className="px-3 py-2 text-gray-600">
+                        <div>{TYPE_LABEL[item.sessions?.customer_type] ?? '-'}</div>
+                        {(item.sessions?.members?.name || item.sessions?.guest_name) && (
+                          <div className="text-xs text-gray-400">👤{item.sessions?.members?.name || item.sessions?.guest_name}</div>
+                        )}
+                      </td>
+                      <td className="px-3 py-2 text-gray-500 text-xs">{item.staff_name ?? '-'}</td>
                       <td className="px-3 py-2 font-medium text-gray-700">
                         {item.menu_items?.name} ×{item.quantity}
                       </td>
