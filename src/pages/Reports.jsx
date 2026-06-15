@@ -32,6 +32,9 @@ export default function Reports() {
   const [cancelledItems, setCancelledItems] = useState([])
   const [sortKey, setSortKey] = useState('ended_at')
   const [sortAsc, setSortAsc] = useState(false)
+  const [modalSession, setModalSession] = useState(null)
+  const [modalHistory, setModalHistory] = useState([])
+  const [modalLoading, setModalLoading] = useState(false)
   const [shopSettings, setShopSettings] = useState(null)
   const [loading, setLoading] = useState(true)
   const [selectedMonth, setSelectedMonth] = useState(() => new Date().toISOString().slice(0, 7))
@@ -189,6 +192,38 @@ export default function Reports() {
       return 0
     })
   }
+
+  async function openModal(s) {
+    setModalSession(s)
+    setModalHistory([])
+    setModalLoading(true)
+    const [{ data: blocks }, { data: orders }] = await Promise.all([
+      supabase.from('time_blocks').select('*').eq('session_id', s.id).order('started_at'),
+      supabase.from('order_items').select('*, menu_items(name, category)').eq('session_id', s.id).order('created_at'),
+    ])
+    const history = [
+      ...(blocks || []).map(b => ({ type: 'block', sortTime: new Date(b.started_at), startTime: b.started_at, endTime: b.ended_at })),
+      ...(orders || []).map(o => ({ type: 'order', sortTime: new Date(o.created_at), name: o.menu_items?.name, category: o.menu_items?.category, quantity: o.quantity, fee: o.unit_price * o.quantity, cancelled: !!o.cancelled_at })),
+    ].sort((a, b) => a.sortTime - b.sortTime)
+    setModalHistory(history)
+    setModalLoading(false)
+  }
+
+  function fmtModalTime(str) {
+    return new Date(str).toLocaleString('ja-JP', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
+  }
+
+  function fmtTime(str) {
+    return new Date(str).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })
+  }
+
+  function fmtElapsed(start, end) {
+    const diff = Math.floor((new Date(end || Date.now()) - new Date(start)) / 60000)
+    const h = Math.floor(diff / 60), m = diff % 60
+    return h > 0 ? `${h}時間${m}分` : `${m}分`
+  }
+
+  const CATEGORY_ICON = { drink: '🥤', alcohol: '🍺', food: '🍔', discount: '🏷️' }
 
   // For daily tab, show single date stats; for monthly, show each day
   const displayDates = tab === 'daily'
@@ -362,7 +397,7 @@ export default function Reports() {
                 </thead>
                 <tbody className="divide-y">
                   {sortSessions(displaySessions).map(s => (
-                    <tr key={s.id} className="hover:bg-red-50">
+                    <tr key={s.id} className="hover:bg-red-50 cursor-pointer" onClick={() => openModal(s)}>
                       <td className="px-4 py-2 text-gray-500 whitespace-nowrap">
                         {new Date(s.ended_at).toLocaleString('ja-JP', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}
                       </td>
@@ -439,6 +474,80 @@ export default function Reports() {
             )}
           </div>
         </>
+      )}
+
+      {/* 伝票詳細モーダル */}
+      {modalSession && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setModalSession(null)}>
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-5 py-4 border-b">
+              <div>
+                <p className="font-semibold text-gray-800">伝票詳細</p>
+                <p className="text-xs text-gray-400 mt-0.5">
+                  {modalSession.tables?.table_number === 99 ? 'その他' : `#${modalSession.tables?.table_number}台`}
+                  　{fmtModalTime(modalSession.started_at)} 来店 → {fmtModalTime(modalSession.ended_at)} 会計
+                </p>
+              </div>
+              <button onClick={() => setModalSession(null)} className="text-gray-400 hover:text-gray-600 text-xl leading-none">✕</button>
+            </div>
+
+            <div className="grid grid-cols-3 gap-3 px-5 py-3 border-b">
+              {[['プレー', modalSession.total_play_fee], ['F&D', modalSession.total_food_fee], ['合計', modalSession.grand_total]].map(([label, val]) => (
+                <div key={label} className="bg-gray-50 rounded-lg px-3 py-2 text-center">
+                  <p className="text-xs text-gray-500 mb-1">{label}</p>
+                  <p className="font-medium text-gray-800">¥{(val || 0).toLocaleString()}</p>
+                </div>
+              ))}
+            </div>
+
+            <div className="grid grid-cols-2 gap-x-4 gap-y-2 px-5 py-3 border-b text-sm">
+              <div>
+                <span className="text-xs text-gray-400">区分</span>
+                <p className="text-gray-700">{TYPE_LABEL[modalSession.customer_type]}</p>
+              </div>
+              <div>
+                <span className="text-xs text-gray-400">客名</span>
+                <p className="text-gray-700">{modalSession.members?.name || modalSession.guest_name || '-'}</p>
+              </div>
+              <div>
+                <span className="text-xs text-gray-400">担当</span>
+                <p className="text-gray-700">{modalSession.staff_name || '-'}</p>
+              </div>
+            </div>
+
+            <div className="px-5 py-3 overflow-y-auto flex-1">
+              <p className="text-xs font-medium text-gray-500 mb-2">注文履歴</p>
+              {modalLoading ? (
+                <p className="text-sm text-gray-400 text-center py-4">読み込み中...</p>
+              ) : modalHistory.length === 0 ? (
+                <p className="text-sm text-gray-400 text-center py-4">履歴なし</p>
+              ) : (
+                <div className="flex flex-col gap-2">
+                  {modalHistory.map((item, i) => (
+                    <div key={i} className={`flex items-center justify-between text-sm ${item.cancelled ? 'opacity-40' : ''}`}>
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="text-xs text-gray-400 shrink-0">{fmtTime(item.sortTime)}</span>
+                        {item.type === 'block' ? (
+                          <span className="text-gray-700">🎱 {fmtTime(item.startTime)}〜{item.endTime ? fmtTime(item.endTime) : 'プレー中'}（{fmtElapsed(item.startTime, item.endTime)}）</span>
+                        ) : (
+                          <span className={`text-gray-700 ${item.cancelled ? 'line-through' : ''}`}>
+                            {CATEGORY_ICON[item.category] ?? '🍹'} {item.name} ×{item.quantity}
+                          </span>
+                        )}
+                        {item.cancelled && <span className="text-xs text-red-400">取消</span>}
+                      </div>
+                      {item.type !== 'block' && (
+                        <span className={`shrink-0 ml-2 ${item.cancelled ? 'line-through text-gray-400' : 'text-gray-600'}`}>
+                          ¥{item.fee.toLocaleString()}
+                        </span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )
