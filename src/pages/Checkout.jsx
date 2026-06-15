@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
-import { TYPE_LABEL, PRICING_LABEL, CATEGORY_ICON } from '../lib/constants'
+import { TYPE_LABEL, PRICING_LABEL, CATEGORY_ICON, isFreetime } from '../lib/constants'
 import TableMoveModal from '../components/TableMoveModal'
 import { fmtElapsed, fmtTime } from '../lib/utils'
 
@@ -116,7 +116,7 @@ export default function Checkout() {
 
   function calcBlockFee(block) {
     const rate = getRate()
-    if (!rate || pricingType === 'freetime') return 0
+    if (!rate || isFreetime(pricingType)) return 0
     const ended = block.ended_at ? new Date(block.ended_at) : new Date()
     const mins = Math.floor((ended - new Date(block.started_at)) / 60000)
     if (mins <= 0) return 0
@@ -133,7 +133,7 @@ export default function Checkout() {
   function calcPlayFee() {
     const rate = getRate()
     if (!rate) return 0
-    if (pricingType === 'freetime') return rate.freetime_price || 0
+    if (isFreetime(pricingType)) return rate.freetime_price || 0
     // 完了ブロック + 進行中ブロック（見積もり）の合計
     return timeBlocks.reduce((sum, b) => sum + calcBlockFee(b), 0)
   }
@@ -320,7 +320,7 @@ export default function Checkout() {
       await supabase.from('time_blocks').update({ ended_at: now }).eq('id', activeBlock.id)
       finalPlayFee = completedBlocks.reduce((sum, b) => sum + calcBlockFee(b), 0)
         + calcBlockFee({ ...activeBlock, ended_at: now })
-      if (pricingType === 'freetime') {
+      if (isFreetime(pricingType)) {
         const rate = getRate()
         finalPlayFee = rate?.freetime_price || 0
       }
@@ -416,7 +416,7 @@ export default function Checkout() {
         {memberId ? (
           <div className="flex items-center gap-3">
             <span className="text-green-700 font-medium">✓ {memberName || '会員選択済み'}</span>
-            <button onClick={() => { setMemberId(null); setMemberName(''); setMemberSearch('') }} className="text-sm text-gray-400">解除</button>
+            <button onClick={async () => { setMemberId(null); setMemberName(''); setMemberSearch(''); await supabase.from('sessions').update({ member_id: null }).eq('id', sessionId) }} className="text-sm text-gray-400">解除</button>
           </div>
         ) : guestNameSaved && !editingGuestName ? (
           <div className="flex items-center gap-3">
@@ -486,13 +486,14 @@ export default function Checkout() {
                 {members.map(m => (
                   <button
                     key={m.id}
-                    onClick={() => {
+                    onClick={async () => {
                       setMemberId(m.id)
                       setMemberName(m.name)
                       setMemberSearch('')
                       setCustomerType(m.customer_type)
                       setMembers([])
                       setMemberError('')
+                      await supabase.from('sessions').update({ member_id: m.id, customer_type: m.customer_type }).eq('id', sessionId)
                     }}
                     className="w-full text-left px-3 py-2 hover:bg-gray-50 text-sm"
                   >
@@ -516,10 +517,10 @@ export default function Checkout() {
           <div>
             <label className="text-sm text-gray-600 mb-1 block">区分</label>
             <div className="flex gap-1">
-              {['general', 'female', 'university', 'high_school'].map(t => (
+              {['general', 'female', 'university', 'high_school', 'staff'].map(t => (
                 <button
                   key={t}
-                  onClick={() => { if (!activeBlock) { setCustomerType(t); if (t === 'high_school' && pricingType === 'freetime') setPricingType('hourly_multi') } }}
+                  onClick={() => { if (!activeBlock) { setCustomerType(t); if ((t === 'high_school' || t === 'staff') && isFreetime(pricingType)) setPricingType('hourly_multi') } }}
                   disabled={!!activeBlock}
                   className={`flex-1 py-2 rounded-lg text-sm font-medium border ${
                     customerType === t ? 'bg-green-700 text-white border-green-700' : 'border-gray-300 text-gray-700'
@@ -532,17 +533,17 @@ export default function Checkout() {
           </div>
           <div>
             <label className="text-sm text-gray-600 mb-1 block">種別</label>
-            <div className="flex gap-1">
-              {['hourly_multi', 'hourly_single', 'freetime'].map(v => {
-                const disabledFreetime = v === 'freetime' && customerType === 'high_school'
+            <div className="grid grid-cols-2 gap-1">
+              {['hourly_multi', 'hourly_single', 'freetime_beer', 'freetime_no_beer'].map(v => {
+                const disabledFreetime = isFreetime(v) && (customerType === 'high_school' || customerType === 'staff')
                 const isDisabled = !!activeBlock || disabledFreetime
                 return (
                   <button
                     key={v}
                     onClick={() => !isDisabled && setPricingType(v)}
                     disabled={isDisabled}
-                    title={disabledFreetime ? '高校生はフリータイム不可' : undefined}
-                    className={`flex-1 py-2 rounded-lg text-xs font-medium border whitespace-nowrap ${
+                    title={disabledFreetime ? `${TYPE_LABEL[customerType]}はフリータイム不可` : undefined}
+                    className={`py-2 rounded-lg text-xs font-medium border whitespace-nowrap ${
                       pricingType === v ? 'bg-blue-600 text-white border-blue-600' : 'border-gray-300 text-gray-700'
                     } ${isDisabled ? 'opacity-30 cursor-not-allowed' : ''}`}
                   >
@@ -557,9 +558,9 @@ export default function Checkout() {
         {/* 料金表示 */}
         {getRate() && (
           <p className="text-sm text-gray-500 mb-3">
-            {pricingType !== 'freetime'
+            {!isFreetime(pricingType)
               ? `${PRICING_LABEL[pricingType]}: ${((getRate().price_per_minute || 0) * 60).toLocaleString()}円/時`
-              : `フリータイム: ${getRate().freetime_price?.toLocaleString()}円`}
+              : `${PRICING_LABEL[pricingType]}: ${getRate().freetime_price?.toLocaleString()}円`}
           </p>
         )}
 
@@ -572,7 +573,7 @@ export default function Checkout() {
                   <div className="text-sm">
                     <span className="font-semibold text-green-800">▶ プレー中</span>
                     <span className="text-gray-600 ml-3">{fmtTime(activeBlock.started_at)} 開始</span>
-                    {pricingType !== 'freetime' && (
+                    {!isFreetime(pricingType) && (
                       <>
                         <span className="text-gray-500 ml-2">経過 {fmtElapsed(activeBlock.started_at, null)}</span>
                         <button
@@ -696,7 +697,7 @@ export default function Checkout() {
                         取消
                       </button>
                     )}
-                    {item.type === 'block' && pricingType === 'freetime' ? (
+                    {item.type === 'block' && isFreetime(pricingType) ? (
                       <span className="text-xs text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full">フリータイム</span>
                     ) : (
                       <span className={`font-medium text-right ${item.cancelled ? 'text-gray-400 line-through' : item.isActive ? 'text-orange-500' : 'text-gray-600'}`}>
