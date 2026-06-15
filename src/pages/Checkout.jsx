@@ -53,6 +53,7 @@ export default function Checkout() {
   const [showPayment, setShowPayment] = useState(false)
   const [tick, setTick] = useState(0)
   const [menuSearch, setMenuSearch] = useState('')
+  const [openCategories, setOpenCategories] = useState({})
   const barcodeRef = useRef(null)
 
   // 1分ごとに再描画（経過時間更新用）
@@ -635,24 +636,45 @@ export default function Checkout() {
           ) : (
             [['🥤 ソフト', drinks], ['🍺 アルコール', alcohols], ['🍔 フード', foods], ['🏷️ 割引', discounts]].map(([label, items]) =>
               items.length > 0 && (
-                <div key={label} className="mb-3">
-                  {!menuSearch.trim() && <p className="text-sm text-gray-500 mb-2">{label}</p>}
-                  <div className="flex flex-wrap gap-2">
-                    {items.map(item => {
-                      const wouldGoNegative = item.category === 'discount' && grandTotal + item.price < 0
-                      return (
-                        <button
-                          key={item.id}
-                          onClick={() => addMenuItem(item)}
-                          disabled={wouldGoNegative}
-                          title={wouldGoNegative ? '割引後の合計がマイナスになるため選択できません' : undefined}
-                          className={`px-3 py-2 rounded-lg text-sm transition-colors ${wouldGoNegative ? 'bg-gray-100 text-gray-300 cursor-not-allowed' : 'bg-gray-100 hover:bg-gray-200'}`}
-                        >
-                          {item.name} <span className={wouldGoNegative ? 'text-gray-300' : 'text-gray-500'}>¥{item.price}</span>
-                        </button>
-                      )
-                    })}
-                  </div>
+                <div key={label} className="mb-1">
+                  {menuSearch.trim() ? (
+                    <div className="flex flex-wrap gap-2 mb-2">
+                      {items.map(item => {
+                        const wouldGoNegative = item.category === 'discount' && grandTotal + item.price < 0
+                        return (
+                          <button key={item.id} onClick={() => addMenuItem(item)} disabled={wouldGoNegative}
+                            title={wouldGoNegative ? '割引後の合計がマイナスになるため選択できません' : undefined}
+                            className={`px-3 py-2 rounded-lg text-sm transition-colors ${wouldGoNegative ? 'bg-gray-100 text-gray-300 cursor-not-allowed' : 'bg-gray-100 hover:bg-gray-200'}`}>
+                            {item.name} <span className={wouldGoNegative ? 'text-gray-300' : 'text-gray-500'}>¥{item.price}</span>
+                          </button>
+                        )
+                      })}
+                    </div>
+                  ) : (
+                    <>
+                      <button
+                        onClick={() => setOpenCategories(prev => ({ ...prev, [label]: !prev[label] }))}
+                        className="w-full flex items-center justify-between text-sm text-gray-600 font-medium py-2 hover:text-gray-800"
+                      >
+                        <span>{label} <span className="text-gray-400 font-normal">({items.length})</span></span>
+                        <span className="text-gray-400">{openCategories[label] ? '▲' : '▼'}</span>
+                      </button>
+                      {openCategories[label] && (
+                        <div className="flex flex-wrap gap-2 mb-2">
+                          {items.map(item => {
+                            const wouldGoNegative = item.category === 'discount' && grandTotal + item.price < 0
+                            return (
+                              <button key={item.id} onClick={() => addMenuItem(item)} disabled={wouldGoNegative}
+                                title={wouldGoNegative ? '割引後の合計がマイナスになるため選択できません' : undefined}
+                                className={`px-3 py-2 rounded-lg text-sm transition-colors ${wouldGoNegative ? 'bg-gray-100 text-gray-300 cursor-not-allowed' : 'bg-gray-100 hover:bg-gray-200'}`}>
+                                {item.name} <span className={wouldGoNegative ? 'text-gray-300' : 'text-gray-500'}>¥{item.price}</span>
+                              </button>
+                            )
+                          })}
+                        </div>
+                      )}
+                    </>
+                  )}
                 </div>
               )
             )
