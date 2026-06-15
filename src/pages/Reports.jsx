@@ -30,6 +30,8 @@ export default function Reports() {
   const [tab, setTab] = useState('daily')
   const [sessions, setSessions] = useState([])
   const [cancelledItems, setCancelledItems] = useState([])
+  const [sortKey, setSortKey] = useState('ended_at')
+  const [sortAsc, setSortAsc] = useState(false)
   const [shopSettings, setShopSettings] = useState(null)
   const [loading, setLoading] = useState(true)
   const [selectedMonth, setSelectedMonth] = useState(() => new Date().toISOString().slice(0, 7))
@@ -165,6 +167,27 @@ export default function Reports() {
     a.download = `売上_${label}.csv`
     a.click()
     URL.revokeObjectURL(url)
+  }
+
+  function handleSort(key) {
+    if (sortKey === key) setSortAsc(a => !a)
+    else { setSortKey(key); setSortAsc(true) }
+  }
+
+  function sortSessions(list) {
+    return [...list].sort((a, b) => {
+      let av, bv
+      if (sortKey === 'ended_at')      { av = a.ended_at; bv = b.ended_at }
+      else if (sortKey === 'table')    { av = a.tables?.table_number ?? 0; bv = b.tables?.table_number ?? 0 }
+      else if (sortKey === 'type')     { av = a.customer_type; bv = b.customer_type }
+      else if (sortKey === 'staff')    { av = a.staff_name ?? ''; bv = b.staff_name ?? '' }
+      else if (sortKey === 'play')     { av = a.total_play_fee || 0; bv = b.total_play_fee || 0 }
+      else if (sortKey === 'food')     { av = a.total_food_fee || 0; bv = b.total_food_fee || 0 }
+      else if (sortKey === 'total')    { av = a.grand_total || 0; bv = b.grand_total || 0 }
+      if (av < bv) return sortAsc ? -1 : 1
+      if (av > bv) return sortAsc ? 1 : -1
+      return 0
+    })
   }
 
   // For daily tab, show single date stats; for monthly, show each day
@@ -329,17 +352,16 @@ export default function Reports() {
               <table className="w-full text-sm">
                 <thead className="bg-gray-50">
                   <tr>
-                    <th className="text-left px-4 py-2 text-gray-600">会計日時</th>
-                    <th className="text-left px-3 py-2 text-gray-600">台</th>
-                    <th className="text-left px-3 py-2 text-gray-600">区分</th>
-                    <th className="text-left px-3 py-2 text-gray-600">担当</th>
-                    <th className="text-right px-3 py-2 text-gray-600">プレー</th>
-                    <th className="text-right px-3 py-2 text-gray-600">F&D</th>
-                    <th className="text-right px-4 py-2 text-gray-600">合計</th>
+                    {[['ended_at','会計日時','left','px-4'],['table','台','left','px-3'],['type','区分','left','px-3'],['staff','担当','left','px-3'],['play','プレー','right','px-3'],['food','F&D','right','px-3'],['total','合計','right','px-4']].map(([key, label, align, px]) => (
+                      <th key={key} onClick={() => handleSort(key)}
+                        className={`text-${align} ${px} py-2 text-gray-600 cursor-pointer hover:text-gray-900 select-none whitespace-nowrap`}>
+                        {label}{sortKey === key ? (sortAsc ? ' ▲' : ' ▼') : ''}
+                      </th>
+                    ))}
                   </tr>
                 </thead>
                 <tbody className="divide-y">
-                  {displaySessions.map(s => (
+                  {sortSessions(displaySessions).map(s => (
                     <tr key={s.id} className="hover:bg-red-50">
                       <td className="px-4 py-2 text-gray-500 whitespace-nowrap">
                         {new Date(s.ended_at).toLocaleString('ja-JP', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}
