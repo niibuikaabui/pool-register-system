@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { createClient } from '@supabase/supabase-js'
 import { supabase, SUPABASE_URL, SUPABASE_ANON_KEY } from '../lib/supabase'
-import { TYPE_LABEL, PRICING_LABEL, CATEGORY_ICON, CATEGORY_LABEL } from '../lib/constants'
+import { TYPE_LABEL, PRICING_LABEL, CATEGORY_ICON, CATEGORY_LABEL, isFreetime } from '../lib/constants'
 
 const EMPTY_USER_FORM = { name: '', email: '', password: '', role: 'staff' }
 const EMPTY_PRICING_FORM = { customer_type: 'general', pricing_type: 'hourly_multi', price_per_hour: '', freetime_price: '' }
@@ -86,6 +86,7 @@ export default function Master() {
   const [editMenuId, setEditMenuId] = useState(null)
   const [bulkEditMode, setBulkEditMode] = useState(false)
   const [bulkDraft, setBulkDraft] = useState([])
+  const [menuSearch, setMenuSearch] = useState('')
 
   const [showPricingForm, setShowPricingForm] = useState(false)
   const [pricingForm, setPricingForm] = useState(EMPTY_PRICING_FORM)
@@ -379,7 +380,7 @@ export default function Master() {
                   <div>
                     <label className="text-sm font-medium text-gray-700 mb-1 block">区分</label>
                     <div className="flex gap-2">
-                      {['general', 'female', 'university', 'high_school'].map(t => (
+                      {['general', 'female', 'university', 'high_school', 'staff'].map(t => (
                         <button key={t} onClick={() => setPricingForm(f => ({ ...f, customer_type: t }))}
                           className={`flex-1 py-2 rounded-lg text-sm border ${pricingForm.customer_type === t ? 'bg-green-700 text-white border-green-700' : 'border-gray-300'}`}>
                           {TYPE_LABEL[t]}
@@ -390,7 +391,7 @@ export default function Master() {
                   <div>
                     <label className="text-sm font-medium text-gray-700 mb-1 block">種別</label>
                     <div className="flex gap-2">
-                      {['hourly_multi', 'hourly_single', 'freetime'].map(t => (
+                      {['hourly_multi', 'hourly_single', 'freetime_beer', 'freetime_no_beer'].map(t => (
                         <button key={t} onClick={() => setPricingForm(f => ({ ...f, pricing_type: t }))}
                           className={`flex-1 py-2 rounded-lg text-sm border ${pricingForm.pricing_type === t ? 'bg-blue-600 text-white border-blue-600' : 'border-gray-300'}`}>
                           {PRICING_LABEL[t]}
@@ -405,7 +406,7 @@ export default function Master() {
                         className="w-full border rounded-lg px-3 py-2 text-right" min="0" step="1" placeholder="例: 600" />
                     </div>
                   )}
-                  {pricingForm.pricing_type === 'freetime' && (
+                  {isFreetime(pricingForm.pricing_type) && (
                     <div>
                       <label className="text-sm font-medium text-gray-700 mb-1 block">フリータイム料金 (円)</label>
                       <input type="number" value={pricingForm.freetime_price} onChange={e => setPricingForm(f => ({ ...f, freetime_price: e.target.value }))}
@@ -438,7 +439,7 @@ export default function Master() {
                         <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded">{PRICING_LABEL[row.pricing_type]}</span>
                       </div>
                       <div className="text-sm text-gray-400 mt-0.5">
-                        {row.pricing_type !== 'freetime'
+                        {!isFreetime(row.pricing_type)
                           ? `${(row.price_per_hour ?? 0).toLocaleString()} 円/時`
                           : `${(row.freetime_price ?? 0).toLocaleString()} 円`}
                       </div>
@@ -510,6 +511,16 @@ export default function Master() {
             </div>
           )}
 
+          {!bulkEditMode && (
+            <input
+              type="text"
+              value={menuSearch}
+              onChange={e => setMenuSearch(e.target.value)}
+              placeholder="メニュー名で絞り込み..."
+              className="w-full border rounded-lg px-3 py-2 text-sm mb-3 focus:outline-none focus:border-blue-400"
+            />
+          )}
+
           <div className="bg-white rounded-xl shadow-sm overflow-hidden">
             {menus.length === 0 ? (
               <div className="text-center py-10 text-gray-400">メニューがありません</div>
@@ -557,7 +568,7 @@ export default function Master() {
               </div>
             ) : (
               <SortableList
-                items={menus}
+                items={menuSearch.trim() ? menus.filter(m => m.name.toLowerCase().includes(menuSearch.trim().toLowerCase())) : menus}
                 onReorder={reorderMenus}
                 renderItem={item => (
                   <>
