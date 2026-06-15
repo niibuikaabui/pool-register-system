@@ -638,15 +638,20 @@ export default function Checkout() {
                 <div key={label} className="mb-3">
                   {!menuSearch.trim() && <p className="text-sm text-gray-500 mb-2">{label}</p>}
                   <div className="flex flex-wrap gap-2">
-                    {items.map(item => (
-                      <button
-                        key={item.id}
-                        onClick={() => addMenuItem(item)}
-                        className="bg-gray-100 hover:bg-gray-200 px-3 py-2 rounded-lg text-sm transition-colors"
-                      >
-                        {item.name} <span className="text-gray-500">¥{item.price}</span>
-                      </button>
-                    ))}
+                    {items.map(item => {
+                      const wouldGoNegative = item.category === 'discount' && grandTotal + item.price < 0
+                      return (
+                        <button
+                          key={item.id}
+                          onClick={() => addMenuItem(item)}
+                          disabled={wouldGoNegative}
+                          title={wouldGoNegative ? '割引後の合計がマイナスになるため選択できません' : undefined}
+                          className={`px-3 py-2 rounded-lg text-sm transition-colors ${wouldGoNegative ? 'bg-gray-100 text-gray-300 cursor-not-allowed' : 'bg-gray-100 hover:bg-gray-200'}`}
+                        >
+                          {item.name} <span className={wouldGoNegative ? 'text-gray-300' : 'text-gray-500'}>¥{item.price}</span>
+                        </button>
+                      )
+                    })}
                   </div>
                 </div>
               )
