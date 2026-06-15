@@ -521,10 +521,9 @@ export default function Checkout() {
                 <button
                   key={t}
                   onClick={async () => { if (!activeBlock) { const newPricingType = (t === 'high_school' || t === 'staff') && isFreetime(pricingType) ? 'hourly_multi' : pricingType; setCustomerType(t); setPricingType(newPricingType); await supabase.from('sessions').update({ customer_type: t, pricing_type: newPricingType }).eq('id', sessionId) } }}
-                  disabled={!!activeBlock}
                   className={`flex-1 py-2 rounded-lg text-sm font-medium border ${
                     customerType === t ? 'bg-green-700 text-white border-green-700' : 'border-gray-300 text-gray-700'
-                  } ${activeBlock ? 'opacity-50 cursor-not-allowed' : ''}`}
+                  }`}
                 >
                   {TYPE_LABEL[t]}
                 </button>
