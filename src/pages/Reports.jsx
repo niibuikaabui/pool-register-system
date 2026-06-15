@@ -340,7 +340,7 @@ export default function Reports() {
                 </thead>
                 <tbody className="divide-y">
                   {displaySessions.map(s => (
-                    <tr key={s.id} className="hover:bg-gray-50">
+                    <tr key={s.id} className="hover:bg-red-50">
                       <td className="px-4 py-2 text-gray-500 whitespace-nowrap">
                         {new Date(s.ended_at).toLocaleString('ja-JP', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}
                       </td>
