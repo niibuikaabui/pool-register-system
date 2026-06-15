@@ -394,7 +394,7 @@ export default function Checkout() {
         )}
         <button
           onClick={() => setShowMoveModal(true)}
-          className="ml-auto text-xs text-blue-600 hover:text-blue-800 border border-blue-200 hover:border-blue-400 px-3 py-1 rounded-full transition-colors"
+          className="ml-auto text-xs text-white bg-green-700 hover:bg-green-600 px-3 py-1 rounded-lg transition-colors"
         >
           台を移動
         </button>
