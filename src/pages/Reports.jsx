@@ -199,11 +199,11 @@ export default function Reports() {
     setModalLoading(true)
     const [{ data: blocks }, { data: orders }] = await Promise.all([
       supabase.from('time_blocks').select('*').eq('session_id', s.id).order('started_at'),
-      supabase.from('order_items').select('*, menu_items(name, category)').eq('session_id', s.id).order('created_at'),
+      supabase.from('order_items').select('*, menu_items(name, category)').eq('session_id', s.id).order('id'),
     ])
     const history = [
       ...(blocks || []).map(b => ({ type: 'block', sortTime: new Date(b.started_at), startTime: b.started_at, endTime: b.ended_at })),
-      ...(orders || []).map(o => ({ type: 'order', sortTime: new Date(o.created_at), name: o.menu_items?.name, category: o.menu_items?.category, quantity: o.quantity, fee: o.unit_price * o.quantity, cancelled: !!o.cancelled_at })),
+      ...(orders || []).map(o => ({ type: 'order', sortTime: new Date(o.created_at || s.started_at), name: o.menu_items?.name, category: o.menu_items?.category, quantity: o.quantity, fee: o.unit_price * o.quantity, cancelled: !!o.cancelled_at })),
     ].sort((a, b) => a.sortTime - b.sortTime)
     setModalHistory(history)
     setModalLoading(false)
