@@ -197,12 +197,21 @@ export default function Reports() {
     setModalSession(s)
     setModalHistory([])
     setModalLoading(true)
-    const [{ data: blocks }, { data: orders }] = await Promise.all([
+    const [{ data: blocks }, { data: orders }, { data: pricing }] = await Promise.all([
       supabase.from('time_blocks').select('*').eq('session_id', s.id).order('started_at'),
       supabase.from('order_items').select('*, menu_items(name, category)').eq('session_id', s.id).order('id'),
+      supabase.from('pricing_master').select('*').eq('customer_type', s.customer_type).eq('pricing_type', s.pricing_type),
     ])
+    const rate = pricing?.[0]
+    const calcBlockFee = (block) => {
+      if (isFreetime(s.pricing_type)) return null
+      const ended = block.ended_at ? new Date(block.ended_at) : new Date()
+      const mins = Math.floor((ended - new Date(block.started_at)) / 60000)
+      if (mins <= 0) return 0
+      return Math.ceil(((rate?.price_per_minute || 0) * mins) / 50) * 50
+    }
     const history = [
-      ...(blocks || []).map(b => ({ type: 'block', sortTime: new Date(b.started_at), startTime: b.started_at, endTime: b.ended_at })),
+      ...(blocks || []).map(b => ({ type: 'block', sortTime: new Date(b.started_at), startTime: b.started_at, endTime: b.ended_at, fee: calcBlockFee(b) })),
       ...(orders || []).map(o => ({ type: 'order', sortTime: new Date(o.created_at || s.started_at), name: o.menu_items?.name, category: o.menu_items?.category, quantity: o.quantity, fee: o.unit_price * o.quantity, cancelled: !!o.cancelled_at })),
     ].sort((a, b) => a.sortTime - b.sortTime)
     setModalHistory(history)
@@ -536,7 +545,11 @@ export default function Reports() {
                         )}
                         {item.cancelled && <span className="text-xs text-red-400">取消</span>}
                       </div>
-                      {item.type !== 'block' && (
+                      {item.type === 'block' && item.fee !== null ? (
+                        <span className="shrink-0 ml-2 text-gray-600">¥{item.fee.toLocaleString()}</span>
+                      ) : item.type === 'block' && item.fee === null ? (
+                        <span className="shrink-0 ml-2 text-xs text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full">フリータイム</span>
+                      ) : (
                         <span className={`shrink-0 ml-2 ${item.cancelled ? 'line-through text-gray-400' : 'text-gray-600'}`}>
                           ¥{item.fee.toLocaleString()}
                         </span>
