@@ -54,6 +54,7 @@ export default function Checkout() {
   const [tick, setTick] = useState(0)
   const [menuSearch, setMenuSearch] = useState('')
   const [openCategories, setOpenCategories] = useState({})
+  const [flashedItemId, setFlashedItemId] = useState(null)
   const barcodeRef = useRef(null)
 
   // 1分ごとに再描画（経過時間更新用）
@@ -200,7 +201,6 @@ export default function Checkout() {
 
   // ─── ドリンク・フード ───
   async function addMenuItem(item) {
-    // 毎回新規行として追加（時刻を個別に記録）
     const now = new Date().toISOString()
     const { data } = await supabase.from('order_items').insert({
       session_id: sessionId,
@@ -208,7 +208,11 @@ export default function Checkout() {
       quantity: 1,
       unit_price: item.price,
     }).select('*, menu_items(name)').single()
-    if (data) setOrderItems(prev => [...prev, { ...data, _addedAt: now }])
+    if (data) {
+      setOrderItems(prev => [...prev, { ...data, _addedAt: now }])
+      setFlashedItemId(item.id)
+      setTimeout(() => setFlashedItemId(null), 600)
+    }
   }
 
   async function cancelOrderItem(id) {
@@ -644,7 +648,7 @@ export default function Checkout() {
                         return (
                           <button key={item.id} onClick={() => addMenuItem(item)} disabled={wouldGoNegative}
                             title={wouldGoNegative ? '割引後の合計がマイナスになるため選択できません' : undefined}
-                            className={`px-3 py-2 rounded-lg text-sm transition-colors ${wouldGoNegative ? 'bg-gray-100 text-gray-300 cursor-not-allowed' : 'bg-gray-100 hover:bg-gray-200'}`}>
+                            className={`px-3 py-2 rounded-lg text-sm transition-colors ${wouldGoNegative ? 'bg-gray-100 text-gray-300 cursor-not-allowed' : flashedItemId === item.id ? 'bg-green-400 text-white' : 'bg-gray-100 hover:bg-gray-200'}`}>
                             {item.name} <span className={wouldGoNegative ? 'text-gray-300' : 'text-gray-500'}>¥{item.price}</span>
                           </button>
                         )
@@ -666,7 +670,7 @@ export default function Checkout() {
                             return (
                               <button key={item.id} onClick={() => addMenuItem(item)} disabled={wouldGoNegative}
                                 title={wouldGoNegative ? '割引後の合計がマイナスになるため選択できません' : undefined}
-                                className={`px-3 py-2 rounded-lg text-sm transition-colors ${wouldGoNegative ? 'bg-gray-100 text-gray-300 cursor-not-allowed' : 'bg-gray-100 hover:bg-gray-200'}`}>
+                                className={`px-3 py-2 rounded-lg text-sm transition-colors ${wouldGoNegative ? 'bg-gray-100 text-gray-300 cursor-not-allowed' : flashedItemId === item.id ? 'bg-green-400 text-white' : 'bg-gray-100 hover:bg-gray-200'}`}>
                                 {item.name} <span className={wouldGoNegative ? 'text-gray-300' : 'text-gray-500'}>¥{item.price}</span>
                               </button>
                             )
