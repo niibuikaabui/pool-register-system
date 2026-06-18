@@ -196,7 +196,27 @@ export default function Checkout() {
     const { data } = await supabase.from('time_blocks').update({
       ended_at: new Date().toISOString(),
     }).eq('id', blockId).select().single()
-    if (data) setTimeBlocks(prev => prev.map(b => b.id === blockId ? data : b))
+    if (data) {
+      const updatedBlocks = timeBlocks.map(b => b.id === blockId ? data : b)
+      setTimeBlocks(updatedBlocks)
+      // プレー終了時に total_play_fee を sessions に保存（伝票一覧の合計額に反映するため）
+      const rate = getRate()
+      if (rate) {
+        let totalPlayFee = 0
+        if (isFreetime(pricingType)) {
+          totalPlayFee = rate.freetime_price || 0
+        } else {
+          totalPlayFee = updatedBlocks
+            .filter(b => b.ended_at)
+            .reduce((sum, b) => {
+              const mins = Math.floor((new Date(b.ended_at) - new Date(b.started_at)) / 60000)
+              if (mins <= 0) return sum
+              return sum + roundUp50((rate.price_per_minute || 0) * mins)
+            }, 0)
+        }
+        await supabase.from('sessions').update({ total_play_fee: totalPlayFee }).eq('id', sessionId)
+      }
+    }
   }
 
   // ─── ドリンク・フード ───
