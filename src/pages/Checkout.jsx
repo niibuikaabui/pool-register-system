@@ -22,40 +22,52 @@ export default function Checkout() {
   const [searchParams] = useSearchParams()
   const tableId = searchParams.get('table')
   const navigate = useNavigate()
+
+  // ── マスタデータ ──
   const [pricing, setPricing] = useState([])
   const [menuItems, setMenuItems] = useState([])
+  const [tables, setTables] = useState([])
   const [members, setMembers] = useState([])
 
+  // ── セッション・プレー設定 ──
+  const [session, setSession] = useState(null)
   const [customerType, setCustomerType] = useState('general')
   const [pricingType, setPricingType] = useState('hourly_multi')
+  const [timeBlocks, setTimeBlocks] = useState([])
+  const [lockedBlockFees, setLockedBlockFees] = useState({})
+  const [currentTableId, setCurrentTableId] = useState(tableId)
+
+  // ── お客様情報 ──
   const [memberId, setMemberId] = useState(null)
   const [memberName, setMemberName] = useState('')
   const [memberSearch, setMemberSearch] = useState('')
+  const [memberError, setMemberError] = useState('')
   const [guestName, setGuestName] = useState('')
   const [guestNameSaved, setGuestNameSaved] = useState(false)
   const [editingGuestName, setEditingGuestName] = useState(false)
   const [guestNameDraft, setGuestNameDraft] = useState('')
-  const [memberError, setMemberError] = useState('')
+
+  // ── 注文 ──
   const [orderItems, setOrderItems] = useState([])
-  const [timeBlocks, setTimeBlocks] = useState([])
-  const [session, setSession] = useState(null)
-  const [tables, setTables] = useState([])
-  const [currentTableId, setCurrentTableId] = useState(tableId)
+  const [menuSearch, setMenuSearch] = useState('')
+  const [openCategories, setOpenCategories] = useState({})
+  const [flashedItemId, setFlashedItemId] = useState(null)
+
+  // ── UI状態 ──
   const [showMoveModal, setShowMoveModal] = useState(false)
-  const [lockedBlockFees, setLockedBlockFees] = useState({})
   const [saving, setSaving] = useState(false)
   const [checkoutError, setCheckoutError] = useState('')
+  const [showPayment, setShowPayment] = useState(false)
+  const [paymentInput, setPaymentInput] = useState('')
+  const [tick, setTick] = useState(0)
+
+  // ── 時間ブロック編集フォーム ──
   const [editingBlockId, setEditingBlockId] = useState(null)
   const [editStartDate, setEditStartDate] = useState('')
   const [editStartTime, setEditStartTime] = useState('')
   const [editEndDate, setEditEndDate] = useState('')
   const [editEndTime, setEditEndTime] = useState('')
-  const [paymentInput, setPaymentInput] = useState('')
-  const [showPayment, setShowPayment] = useState(false)
-  const [tick, setTick] = useState(0)
-  const [menuSearch, setMenuSearch] = useState('')
-  const [openCategories, setOpenCategories] = useState({})
-  const [flashedItemId, setFlashedItemId] = useState(null)
+
   const barcodeRef = useRef(null)
 
   // 1分ごとに再描画（経過時間更新用）
@@ -92,6 +104,8 @@ export default function Checkout() {
       .subscribe()
     return () => supabase.removeChannel(channel)
   }, [sessionId])
+
+  // ─── データ取得 ───
 
   async function fetchMaster() {
     const [{ data: p }, { data: m }, { data: t }] = await Promise.all([
@@ -132,6 +146,8 @@ export default function Checkout() {
     setTimeBlocks(data || [])
   }
 
+  // ─── 料金計算 ───
+
   function getRate() {
     return pricing.find(p => p.customer_type === customerType && p.pricing_type === pricingType)
   }
@@ -143,6 +159,18 @@ export default function Checkout() {
     const mins = Math.floor((ended - new Date(block.started_at)) / 60000)
     if (mins <= 0) return 0
     return roundUp50((rate.price_per_minute || 0) * mins)
+  }
+
+  // total_play_fee の計算（endTimeBlock・saveEditBlock で共用）
+  function calcTotalPlayFeeFromBlocks(blocks, rate) {
+    if (isFreetime(pricingType)) return rate.freetime_price || 0
+    return blocks
+      .filter(b => b.ended_at)
+      .reduce((sum, b) => {
+        const mins = Math.floor((new Date(b.ended_at) - new Date(b.started_at)) / 60000)
+        if (mins <= 0) return sum
+        return sum + roundUp50((rate.price_per_minute || 0) * mins)
+      }, 0)
   }
 
   // tick を参照して毎分再計算されるようにする
@@ -212,7 +240,54 @@ export default function Checkout() {
     })),
   ].sort((a, b) => a.sortTime - b.sortTime)
 
+  // ─── お客様情報ハンドラ ───
+
+  async function handleMemberRemove() {
+    setMemberId(null)
+    setMemberName('')
+    setMemberSearch('')
+    await supabase.from('sessions').update({ member_id: null }).eq('id', sessionId)
+  }
+
+  async function handleMemberSelect(m) {
+    setMemberId(m.id)
+    setMemberName(m.name)
+    setMemberSearch('')
+    setCustomerType(m.customer_type)
+    setMembers([])
+    setMemberError('')
+    await supabase.from('sessions').update({ member_id: m.id, customer_type: m.customer_type }).eq('id', sessionId)
+  }
+
+  async function handleGuestNameSave() {
+    setGuestName(guestNameDraft)
+    setGuestNameSaved(true)
+    setEditingGuestName(false)
+    await supabase.from('sessions').update({ guest_name: guestNameDraft.trim() || null }).eq('id', sessionId)
+  }
+
+  async function handleGuestNameBlur(e) {
+    const name = e.target.value.trim()
+    if (name) setGuestNameSaved(true)
+    await supabase.from('sessions').update({ guest_name: name || null }).eq('id', sessionId)
+  }
+
+  // ─── プレー設定ハンドラ ───
+
+  async function handleCustomerTypeChange(t) {
+    const newPricingType = (t === 'high_school' || t === 'staff') && isFreetime(pricingType) ? 'hourly_multi' : pricingType
+    setCustomerType(t)
+    setPricingType(newPricingType)
+    await supabase.from('sessions').update({ customer_type: t, pricing_type: newPricingType }).eq('id', sessionId)
+  }
+
+  async function handlePricingTypeChange(v) {
+    setPricingType(v)
+    await supabase.from('sessions').update({ pricing_type: v }).eq('id', sessionId)
+  }
+
   // ─── 時間ブロック操作 ───
+
   async function startTimeBlock() {
     const { data } = await supabase.from('time_blocks').insert({
       session_id: sessionId,
@@ -228,23 +303,14 @@ export default function Checkout() {
     if (data) {
       const updatedBlocks = timeBlocks.map(b => b.id === blockId ? data : b)
       setTimeBlocks(updatedBlocks)
+
       // プレー終了時に total_play_fee を sessions に保存（伝票一覧の合計額に反映するため）
       const rate = getRate()
       if (rate) {
-        let totalPlayFee = 0
-        if (isFreetime(pricingType)) {
-          totalPlayFee = rate.freetime_price || 0
-        } else {
-          totalPlayFee = updatedBlocks
-            .filter(b => b.ended_at)
-            .reduce((sum, b) => {
-              const mins = Math.floor((new Date(b.ended_at) - new Date(b.started_at)) / 60000)
-              if (mins <= 0) return sum
-              return sum + roundUp50((rate.price_per_minute || 0) * mins)
-            }, 0)
-        }
+        const totalPlayFee = calcTotalPlayFeeFromBlocks(updatedBlocks, rate)
         await supabase.from('sessions').update({ total_play_fee: totalPlayFee }).eq('id', sessionId)
       }
+
       // 終了時の料金をロック（以降の種別変更で再計算されないように）
       const endedMins = Math.floor((new Date(data.ended_at) - new Date(data.started_at)) / 60000)
       const endedFee = !isFreetime(pricingType) && rate && endedMins > 0
@@ -254,56 +320,8 @@ export default function Checkout() {
     }
   }
 
-  // ─── ドリンク・フード ───
-  async function addMenuItem(item) {
-    const now = new Date().toISOString()
-    const { data } = await supabase.from('order_items').insert({
-      session_id: sessionId,
-      menu_item_id: item.id,
-      quantity: 1,
-      unit_price: item.price,
-    }).select('*, menu_items(name)').single()
-    if (data) {
-      setOrderItems(prev => [...prev, { ...data, _addedAt: now }])
-      setFlashedItemId(item.id)
-      setTimeout(() => setFlashedItemId(null), 600)
-    }
-  }
-
-  async function cancelOrderItem(id) {
-    const now = new Date().toISOString()
-    await supabase.from('order_items').update({ cancelled_at: now }).eq('id', id)
-    setOrderItems(prev => prev.map(o => o.id === id ? { ...o, cancelled_at: now } : o))
-  }
-
-  // ─── 会員検索 ───
-  useEffect(() => {
-    if (!memberSearch) { setMembers([]); setMemberError(''); return }
-    const t = setTimeout(() => searchMember(memberSearch), 300)
-    return () => clearTimeout(t)
-  }, [memberSearch])
-
-  async function searchMember(query) {
-    if (!query) { setMembers([]); return }
-    setMemberError('')
-    const numVal = parseInt(query)
-    const filters = [`name.ilike.%${query}%`, `phone.ilike.%${query}%`]
-    if (!isNaN(numVal)) filters.push(`member_number.eq.${numVal}`)
-    const { data, error } = await supabase
-      .from('members')
-      .select('*')
-      .or(filters.join(','))
-      .limit(5)
-    if (error) { setMemberError('検索エラー: ' + error.message); return }
-    setMembers(data || [])
-    if (data?.length === 0) setMemberError('該当する会員が見つかりません')
-  }
-
-  function handleBarcodeInput(e) {
-    if (e.key === 'Enter') searchMember(memberSearch)
-  }
-
   // ─── 時間ブロック編集 ───
+
   function openEditBlock(block) {
     const [sd, st] = toLocalDatetimeInput(block.started_at).split('T')
     setEditStartDate(sd)
@@ -353,18 +371,7 @@ export default function Checkout() {
     // 時間修正後に total_play_fee を再計算してsessionsに保存（伝票一覧の合計額に反映するため）
     const rate = getRate()
     if (rate) {
-      let totalPlayFee = 0
-      if (isFreetime(pricingType)) {
-        totalPlayFee = rate.freetime_price || 0
-      } else {
-        totalPlayFee = updatedBlocks
-          .filter(b => b.ended_at)
-          .reduce((sum, b) => {
-            const mins = Math.floor((new Date(b.ended_at) - new Date(b.started_at)) / 60000)
-            if (mins <= 0) return sum
-            return sum + roundUp50((rate.price_per_minute || 0) * mins)
-          }, 0)
-      }
+      const totalPlayFee = calcTotalPlayFeeFromBlocks(updatedBlocks, rate)
       await supabase.from('sessions').update({ total_play_fee: totalPlayFee }).eq('id', sessionId)
     }
 
@@ -377,14 +384,63 @@ export default function Checkout() {
     }
   }
 
+  // ─── ドリンク・フード ───
+
+  async function addMenuItem(item) {
+    const now = new Date().toISOString()
+    const { data } = await supabase.from('order_items').insert({
+      session_id: sessionId,
+      menu_item_id: item.id,
+      quantity: 1,
+      unit_price: item.price,
+    }).select('*, menu_items(name)').single()
+    if (data) {
+      setOrderItems(prev => [...prev, { ...data, _addedAt: now }])
+      setFlashedItemId(item.id)
+      setTimeout(() => setFlashedItemId(null), 600)
+    }
+  }
+
+  async function cancelOrderItem(id) {
+    const now = new Date().toISOString()
+    await supabase.from('order_items').update({ cancelled_at: now }).eq('id', id)
+    setOrderItems(prev => prev.map(o => o.id === id ? { ...o, cancelled_at: now } : o))
+  }
+
+  // ─── 会員検索 ───
+
+  useEffect(() => {
+    if (!memberSearch) { setMembers([]); setMemberError(''); return }
+    const t = setTimeout(() => searchMember(memberSearch), 300)
+    return () => clearTimeout(t)
+  }, [memberSearch])
+
+  async function searchMember(query) {
+    if (!query) { setMembers([]); return }
+    setMemberError('')
+    const numVal = parseInt(query)
+    const filters = [`name.ilike.%${query}%`, `phone.ilike.%${query}%`]
+    if (!isNaN(numVal)) filters.push(`member_number.eq.${numVal}`)
+    const { data, error } = await supabase
+      .from('members')
+      .select('*')
+      .or(filters.join(','))
+      .limit(5)
+    if (error) { setMemberError('検索エラー: ' + error.message); return }
+    setMembers(data || [])
+    if (data?.length === 0) setMemberError('該当する会員が見つかりません')
+  }
+
+  function handleBarcodeInput(e) {
+    if (e.key === 'Enter') searchMember(memberSearch)
+  }
+
   // ─── 台移動 ───
+
   async function handleMoveTable(newTableId) {
     const oldTableId = currentTableId
-    // sessionのtable_idを更新
     await supabase.from('sessions').update({ table_id: newTableId }).eq('id', sessionId)
-    // 新しい台を使用中に
     await supabase.from('tables').update({ status: 'in_use' }).eq('id', newTableId)
-    // 古い台に残伝票がなければ空きに
     const { data: remaining } = await supabase
       .from('sessions').select('id')
       .eq('table_id', oldTableId).eq('is_paid', false).neq('id', sessionId)
@@ -396,6 +452,16 @@ export default function Checkout() {
   }
 
   // ─── 会計完了 ───
+
+  function handleCheckoutStart() {
+    if (activeBlock) {
+      setCheckoutError('プレーが終了していません。先にプレーを終了させてください。')
+      return
+    }
+    setCheckoutError('')
+    setShowPayment(true)
+  }
+
   async function handleCheckout() {
     setSaving(true)
 
@@ -456,6 +522,8 @@ export default function Checkout() {
     }
   }
 
+  // ─── 表示用の派生データ ───
+
   const filteredMenuItems = menuSearch.trim()
     ? menuItems.filter(m => m.name.toLowerCase().includes(menuSearch.trim().toLowerCase()))
     : menuItems
@@ -470,8 +538,59 @@ export default function Checkout() {
     ? (currentTable.table_number === 99 ? 'その他' : `#${currentTable.table_number}台`)
     : ''
 
+  // メニューアイテムボタン（検索時・カテゴリ展開時で共用）
+  function MenuItemButton({ item }) {
+    const wouldGoNegative = item.category === 'discount' && grandTotal + item.price < 0
+    return (
+      <button
+        key={item.id}
+        onClick={() => addMenuItem(item)}
+        disabled={wouldGoNegative}
+        title={wouldGoNegative ? '割引後の合計がマイナスになるため選択できません' : undefined}
+        className={`px-3 py-2 rounded-lg text-sm transition-colors ${
+          wouldGoNegative
+            ? 'bg-gray-100 text-gray-300 cursor-not-allowed'
+            : flashedItemId === item.id
+              ? 'bg-green-400 text-white'
+              : 'bg-gray-100 hover:bg-gray-200'
+        }`}
+      >
+        {item.name}{' '}
+        <span className={wouldGoNegative ? 'text-gray-300' : 'text-gray-500'}>¥{item.price}</span>
+      </button>
+    )
+  }
+
+  // 時間ブロック編集フォーム（プレー設定・注文履歴の両方で使用）
+  function TimeBlockEditForm({ block, showEnd }) {
+    return (
+      <div className="mt-2 bg-blue-50 border border-blue-200 rounded-lg p-3 flex flex-col gap-2">
+        <div className="flex items-center gap-2">
+          <label className="text-xs text-gray-600 w-12 shrink-0">開始</label>
+          <input type="date" value={editStartDate} onChange={e => setEditStartDate(e.target.value)} className="border rounded px-2 py-1 text-sm" />
+          <input type="time" value={editStartTime} onChange={e => setEditStartTime(e.target.value)} className="border rounded px-2 py-1 text-sm w-24" />
+        </div>
+        {showEnd && (
+          <div className="flex items-center gap-2">
+            <label className="text-xs text-gray-600 w-12 shrink-0">終了</label>
+            <input type="date" value={editEndDate} onChange={e => setEditEndDate(e.target.value)} className="border rounded px-2 py-1 text-sm" />
+            <input type="time" value={editEndTime} onChange={e => setEditEndTime(e.target.value)} className="border rounded px-2 py-1 text-sm w-24" />
+          </div>
+        )}
+        <div className="flex gap-2 justify-end">
+          <button onClick={() => setEditingBlockId(null)} className="text-xs text-gray-400 px-3 py-1 rounded border">キャンセル</button>
+          <button onClick={() => saveEditBlock(block)} className="text-xs text-white bg-blue-500 hover:bg-blue-600 px-3 py-1 rounded">保存</button>
+        </div>
+      </div>
+    )
+  }
+
+  // ─── レンダリング ───
+
   return (
     <div className="max-w-2xl mx-auto">
+
+      {/* ヘッダー */}
       <div className="flex items-center gap-3 mb-4">
         <button onClick={() => navigate(backPath)} className="text-gray-500 hover:text-gray-700 text-sm">← 戻る</button>
         <h1 className="text-xl font-bold text-gray-800">伝票</h1>
@@ -486,7 +605,6 @@ export default function Checkout() {
         </button>
       </div>
 
-      {/* 台移動モーダル */}
       {showMoveModal && (
         <TableMoveModal
           tables={tables}
@@ -496,14 +614,13 @@ export default function Checkout() {
         />
       )}
 
-
-      {/* ── 会員（任意） ── */}
+      {/* ── お客様情報（任意） ── */}
       <div className="bg-white rounded-xl shadow-sm p-4 mb-3">
         <h2 className="font-semibold text-gray-700 mb-3">お客様情報（任意）</h2>
         {memberId ? (
           <div className="flex items-center gap-3">
             <span className="text-green-700 font-medium">✓ {memberName || '会員選択済み'}</span>
-            <button onClick={async () => { setMemberId(null); setMemberName(''); setMemberSearch(''); await supabase.from('sessions').update({ member_id: null }).eq('id', sessionId) }} className="text-sm text-gray-400">解除</button>
+            <button onClick={handleMemberRemove} className="text-sm text-gray-400">解除</button>
           </div>
         ) : guestNameSaved && !editingGuestName ? (
           <div className="flex items-center gap-3">
@@ -530,12 +647,7 @@ export default function Checkout() {
                 </div>
                 <div className="flex gap-2 justify-end">
                   <button onClick={() => setEditingGuestName(false)} className="text-xs text-gray-400 px-3 py-1 rounded border">キャンセル</button>
-                  <button onClick={async () => {
-                    setGuestName(guestNameDraft)
-                    setGuestNameSaved(true)
-                    setEditingGuestName(false)
-                    await supabase.from('sessions').update({ guest_name: guestNameDraft.trim() || null }).eq('id', sessionId)
-                  }} className="text-xs text-white bg-blue-500 hover:bg-blue-600 px-3 py-1 rounded">保存</button>
+                  <button onClick={handleGuestNameSave} className="text-xs text-white bg-blue-500 hover:bg-blue-600 px-3 py-1 rounded">保存</button>
                 </div>
               </div>
             ) : (
@@ -544,11 +656,7 @@ export default function Checkout() {
                 <input
                   value={guestName}
                   onChange={e => setGuestName(e.target.value)}
-                  onBlur={async e => {
-                    const name = e.target.value.trim()
-                    if (name) setGuestNameSaved(true)
-                    await supabase.from('sessions').update({ guest_name: name || null }).eq('id', sessionId)
-                  }}
+                  onBlur={handleGuestNameBlur}
                   placeholder="例：田中さん"
                   className="w-full border rounded-lg px-3 py-2 text-sm"
                 />
@@ -573,15 +681,7 @@ export default function Checkout() {
                 {members.map(m => (
                   <button
                     key={m.id}
-                    onClick={async () => {
-                      setMemberId(m.id)
-                      setMemberName(m.name)
-                      setMemberSearch('')
-                      setCustomerType(m.customer_type)
-                      setMembers([])
-                      setMemberError('')
-                      await supabase.from('sessions').update({ member_id: m.id, customer_type: m.customer_type }).eq('id', sessionId)
-                    }}
+                    onClick={() => handleMemberSelect(m)}
                     className="w-full text-left px-3 py-2 hover:bg-gray-50 text-sm"
                   >
                     <span className="font-medium">{m.name}</span>
@@ -607,7 +707,7 @@ export default function Checkout() {
               {['general', 'female', 'university', 'high_school', 'staff'].map(t => (
                 <button
                   key={t}
-                  onClick={async () => { const newPricingType = (t === 'high_school' || t === 'staff') && isFreetime(pricingType) ? 'hourly_multi' : pricingType; setCustomerType(t); setPricingType(newPricingType); await supabase.from('sessions').update({ customer_type: t, pricing_type: newPricingType }).eq('id', sessionId) }}
+                  onClick={() => handleCustomerTypeChange(t)}
                   className={`flex-1 py-2 rounded-lg text-sm font-medium border ${
                     customerType === t ? 'bg-green-700 text-white border-green-700' : 'border-gray-300 text-gray-700'
                   }`}
@@ -626,7 +726,7 @@ export default function Checkout() {
                 return (
                   <button
                     key={v}
-                    onClick={async () => { if (!isDisabled) { setPricingType(v); await supabase.from('sessions').update({ pricing_type: v }).eq('id', sessionId) } }}
+                    onClick={() => { if (!isDisabled) handlePricingTypeChange(v) }}
                     disabled={isDisabled}
                     title={disabledFreetime ? `${TYPE_LABEL[customerType]}はフリータイム不可` : undefined}
                     className={`py-2 rounded-lg text-xs font-medium border whitespace-nowrap ${
@@ -651,122 +751,88 @@ export default function Checkout() {
         )}
 
         {/* 時間ブロック */}
-        {(
-          <div className="border-t pt-3 mt-1">
-            {activeBlock ? (
-              <div>
-                <div className="flex items-center justify-between bg-green-50 border border-green-200 rounded-lg px-4 py-3">
-                  <div className="text-sm">
-                    <span className="font-semibold text-green-800">▶ プレー中</span>
-                    <span className="text-gray-600 ml-3">{fmtTime(activeBlock.started_at)} 開始</span>
-                    {!isFreetime(pricingType) && (
-                      <>
-                        <span className="text-gray-500 ml-2">経過 {fmtElapsed(activeBlock.started_at, null)}</span>
-                        <button
-                          onClick={() => openEditBlock(activeBlock)}
-                          className="ml-3 text-xs text-blue-400 hover:text-blue-600 border border-blue-200 hover:border-blue-400 px-2 py-0.5 rounded transition-colors"
-                        >
-                          開始時刻を修正
-                        </button>
-                      </>
-                    )}
-                  </div>
-                  <button
-                    onClick={() => endTimeBlock(activeBlock.id)}
-                    className="bg-red-500 hover:bg-red-400 text-white px-4 py-2 rounded-lg text-sm font-bold transition-colors"
-                  >
-                    ■ 終了
-                  </button>
-                </div>
-                {editingBlockId === activeBlock.id && (
-                  <div className="mt-2 bg-blue-50 border border-blue-200 rounded-lg p-3 flex flex-col gap-2">
-                    <div className="flex items-center gap-2">
-                      <label className="text-xs text-gray-600 w-12 shrink-0">開始</label>
-                      <input type="date" value={editStartDate} onChange={e => setEditStartDate(e.target.value)} className="border rounded px-2 py-1 text-sm" />
-                      <input type="time" value={editStartTime} onChange={e => setEditStartTime(e.target.value)} className="border rounded px-2 py-1 text-sm w-24" />
-                    </div>
-                    <div className="flex gap-2 justify-end">
-                      <button onClick={() => setEditingBlockId(null)} className="text-xs text-gray-400 px-3 py-1 rounded border">キャンセル</button>
-                      <button onClick={() => saveEditBlock(activeBlock)} className="text-xs text-white bg-blue-500 hover:bg-blue-600 px-3 py-1 rounded">保存</button>
-                    </div>
-                  </div>
-                )}
-              </div>
-            ) : (
-              <button
-                onClick={startTimeBlock}
-                className="w-full bg-green-700 hover:bg-green-600 text-white font-bold rounded-lg py-3 text-sm transition-colors"
-              >
-                ▶ ビリヤード開始
-              </button>
-            )}
-          </div>
-        )}
-      </div>
-
-      {/* ── ドリンク・フード ── */}
-      {(
-        <div className="bg-white rounded-xl shadow-sm p-4 mb-3">
-          <div className="flex items-center justify-between mb-3">
-            <h2 className="font-semibold text-gray-700">ドリンク・フード</h2>
-          </div>
-          <input
-            type="text"
-            value={menuSearch}
-            onChange={e => setMenuSearch(e.target.value)}
-            placeholder="メニューを検索..."
-            className="w-full border rounded-lg px-3 py-2 text-sm mb-3 focus:outline-none focus:border-blue-400"
-          />
-          {menuSearch.trim() && filteredMenuItems.length === 0 ? (
-            <p className="text-sm text-gray-400 text-center py-3">「{menuSearch}」に一致するメニューはありません</p>
-          ) : (
-            [['🥤 ソフト', drinks], ['🍺 アルコール', alcohols], ['🍔 フード', foods], ['🏷️ 割引', discounts]].map(([label, items]) =>
-              items.length > 0 && (
-                <div key={label} className="mb-1">
-                  {menuSearch.trim() ? (
-                    <div className="flex flex-wrap gap-2 mb-2">
-                      {items.map(item => {
-                        const wouldGoNegative = item.category === 'discount' && grandTotal + item.price < 0
-                        return (
-                          <button key={item.id} onClick={() => addMenuItem(item)} disabled={wouldGoNegative}
-                            title={wouldGoNegative ? '割引後の合計がマイナスになるため選択できません' : undefined}
-                            className={`px-3 py-2 rounded-lg text-sm transition-colors ${wouldGoNegative ? 'bg-gray-100 text-gray-300 cursor-not-allowed' : flashedItemId === item.id ? 'bg-green-400 text-white' : 'bg-gray-100 hover:bg-gray-200'}`}>
-                            {item.name} <span className={wouldGoNegative ? 'text-gray-300' : 'text-gray-500'}>¥{item.price}</span>
-                          </button>
-                        )
-                      })}
-                    </div>
-                  ) : (
+        <div className="border-t pt-3 mt-1">
+          {activeBlock ? (
+            <div>
+              <div className="flex items-center justify-between bg-green-50 border border-green-200 rounded-lg px-4 py-3">
+                <div className="text-sm">
+                  <span className="font-semibold text-green-800">▶ プレー中</span>
+                  <span className="text-gray-600 ml-3">{fmtTime(activeBlock.started_at)} 開始</span>
+                  {!isFreetime(pricingType) && (
                     <>
+                      <span className="text-gray-500 ml-2">経過 {fmtElapsed(activeBlock.started_at, null)}</span>
                       <button
-                        onClick={() => setOpenCategories(prev => ({ ...prev, [label]: !prev[label] }))}
-                        className="w-full flex items-center justify-between text-sm text-gray-600 font-medium py-2 hover:text-gray-800"
+                        onClick={() => openEditBlock(activeBlock)}
+                        className="ml-3 text-xs text-blue-400 hover:text-blue-600 border border-blue-200 hover:border-blue-400 px-2 py-0.5 rounded transition-colors"
                       >
-                        <span>{label} <span className="text-gray-400 font-normal">({items.length})</span></span>
-                        <span className="text-gray-400">{openCategories[label] ? '▲' : '▼'}</span>
+                        開始時刻を修正
                       </button>
-                      {openCategories[label] && (
-                        <div className="flex flex-wrap gap-2 mb-2">
-                          {items.map(item => {
-                            const wouldGoNegative = item.category === 'discount' && grandTotal + item.price < 0
-                            return (
-                              <button key={item.id} onClick={() => addMenuItem(item)} disabled={wouldGoNegative}
-                                title={wouldGoNegative ? '割引後の合計がマイナスになるため選択できません' : undefined}
-                                className={`px-3 py-2 rounded-lg text-sm transition-colors ${wouldGoNegative ? 'bg-gray-100 text-gray-300 cursor-not-allowed' : flashedItemId === item.id ? 'bg-green-400 text-white' : 'bg-gray-100 hover:bg-gray-200'}`}>
-                                {item.name} <span className={wouldGoNegative ? 'text-gray-300' : 'text-gray-500'}>¥{item.price}</span>
-                              </button>
-                            )
-                          })}
-                        </div>
-                      )}
                     </>
                   )}
                 </div>
-              )
-            )
+                <button
+                  onClick={() => endTimeBlock(activeBlock.id)}
+                  className="bg-red-500 hover:bg-red-400 text-white px-4 py-2 rounded-lg text-sm font-bold transition-colors"
+                >
+                  ■ 終了
+                </button>
+              </div>
+              {editingBlockId === activeBlock.id && (
+                <TimeBlockEditForm block={activeBlock} showEnd={false} />
+              )}
+            </div>
+          ) : (
+            <button
+              onClick={startTimeBlock}
+              className="w-full bg-green-700 hover:bg-green-600 text-white font-bold rounded-lg py-3 text-sm transition-colors"
+            >
+              ▶ ビリヤード開始
+            </button>
           )}
         </div>
-      )}
+      </div>
+
+      {/* ── ドリンク・フード ── */}
+      <div className="bg-white rounded-xl shadow-sm p-4 mb-3">
+        <h2 className="font-semibold text-gray-700 mb-3">ドリンク・フード</h2>
+        <input
+          type="text"
+          value={menuSearch}
+          onChange={e => setMenuSearch(e.target.value)}
+          placeholder="メニューを検索..."
+          className="w-full border rounded-lg px-3 py-2 text-sm mb-3 focus:outline-none focus:border-blue-400"
+        />
+        {menuSearch.trim() && filteredMenuItems.length === 0 ? (
+          <p className="text-sm text-gray-400 text-center py-3">「{menuSearch}」に一致するメニューはありません</p>
+        ) : (
+          [['🥤 ソフト', drinks], ['🍺 アルコール', alcohols], ['🍔 フード', foods], ['🏷️ 割引', discounts]].map(([label, items]) =>
+            items.length > 0 && (
+              <div key={label} className="mb-1">
+                {menuSearch.trim() ? (
+                  <div className="flex flex-wrap gap-2 mb-2">
+                    {items.map(item => <MenuItemButton key={item.id} item={item} />)}
+                  </div>
+                ) : (
+                  <>
+                    <button
+                      onClick={() => setOpenCategories(prev => ({ ...prev, [label]: !prev[label] }))}
+                      className="w-full flex items-center justify-between text-sm text-gray-600 font-medium py-2 hover:text-gray-800"
+                    >
+                      <span>{label} <span className="text-gray-400 font-normal">({items.length})</span></span>
+                      <span className="text-gray-400">{openCategories[label] ? '▲' : '▼'}</span>
+                    </button>
+                    {openCategories[label] && (
+                      <div className="flex flex-wrap gap-2 mb-2">
+                        {items.map(item => <MenuItemButton key={item.id} item={item} />)}
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+            )
+          )
+        )}
+      </div>
 
       {/* ── 注文履歴 ── */}
       {history.length > 0 && (
@@ -821,24 +887,10 @@ export default function Checkout() {
                 </div>
                 {/* 時間編集UI */}
                 {item.type === 'block' && !item.isActive && editingBlockId === item.id && (
-                  <div className="mt-2 bg-blue-50 border border-blue-200 rounded-lg p-3 flex flex-col gap-2">
-                    <div className="flex items-center gap-2">
-                      <label className="text-xs text-gray-600 w-12 shrink-0">開始</label>
-                      <input type="date" value={editStartDate} onChange={e => setEditStartDate(e.target.value)} className="border rounded px-2 py-1 text-sm" />
-                      <input type="time" value={editStartTime} onChange={e => setEditStartTime(e.target.value)} className="border rounded px-2 py-1 text-sm w-24" />
-                    </div>
-                    {item.endTime && (
-                      <div className="flex items-center gap-2">
-                        <label className="text-xs text-gray-600 w-12 shrink-0">終了</label>
-                        <input type="date" value={editEndDate} onChange={e => setEditEndDate(e.target.value)} className="border rounded px-2 py-1 text-sm" />
-                        <input type="time" value={editEndTime} onChange={e => setEditEndTime(e.target.value)} className="border rounded px-2 py-1 text-sm w-24" />
-                      </div>
-                    )}
-                    <div className="flex gap-2 justify-end">
-                      <button onClick={() => setEditingBlockId(null)} className="text-xs text-gray-400 px-3 py-1 rounded border">キャンセル</button>
-                      <button onClick={() => saveEditBlock({ id: item.id, started_at: item.startTime, ended_at: item.endTime })} className="text-xs text-white bg-blue-500 hover:bg-blue-600 px-3 py-1 rounded">保存</button>
-                    </div>
-                  </div>
+                  <TimeBlockEditForm
+                    block={{ id: item.id, started_at: item.startTime, ended_at: item.endTime }}
+                    showEnd={!!item.endTime}
+                  />
                 )}
               </div>
             ))}
@@ -847,60 +899,53 @@ export default function Checkout() {
       )}
 
       {/* ── 合計・会計 ── */}
-      {(
-        <div className="bg-white rounded-xl shadow-sm p-4 mb-4">
-          <div className="flex justify-between font-bold text-lg pt-2">
-            <span>合計</span>
-            <span>¥{grandTotal.toLocaleString()}</span>
-          </div>
-
-          {showPayment ? (
-            <div className="mt-4">
-              <label className="text-sm text-gray-600 mb-1 block">お預かり金額（現金）<span className="text-gray-400 font-normal ml-1">任意</span></label>
-              <input
-                type="number"
-                value={paymentInput}
-                onChange={e => setPaymentInput(e.target.value)}
-                className="w-full border-2 border-blue-400 rounded-lg px-4 py-3 text-xl text-right font-bold"
-                placeholder="入力しない場合はそのまま会計完了"
-              />
-              {payment > 0 && (
-                <div className={`mt-2 text-right text-lg font-bold ${change >= 0 ? 'text-green-700' : 'text-red-600'}`}>
-                  お釣り: ¥{change.toLocaleString()}
-                </div>
-              )}
-              <button
-                onClick={handleCheckout}
-                disabled={saving}
-                className="mt-3 w-full bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-bold rounded-xl py-4 text-lg transition-colors"
-              >
-                {saving ? '処理中...' : '会計完了'}
-              </button>
-            </div>
-          ) : (
-            <>
-              <button
-                onClick={() => {
-                  if (activeBlock) {
-                    setCheckoutError('プレーが終了していません。先にプレーを終了させてください。')
-                    return
-                  }
-                  setCheckoutError('')
-                  setShowPayment(true)
-                }}
-                className="mt-4 w-full bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-xl py-4 text-lg transition-colors"
-              >
-                会計へ進む
-              </button>
-              {checkoutError && (
-                <div className="mt-2 text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-4 py-3">
-                  {checkoutError}
-                </div>
-              )}
-            </>
-          )}
+      <div className="bg-white rounded-xl shadow-sm p-4 mb-4">
+        <div className="flex justify-between font-bold text-lg pt-2">
+          <span>合計</span>
+          <span>¥{grandTotal.toLocaleString()}</span>
         </div>
-      )}
+
+        {showPayment ? (
+          <div className="mt-4">
+            <label className="text-sm text-gray-600 mb-1 block">
+              お預かり金額（現金）<span className="text-gray-400 font-normal ml-1">任意</span>
+            </label>
+            <input
+              type="number"
+              value={paymentInput}
+              onChange={e => setPaymentInput(e.target.value)}
+              className="w-full border-2 border-blue-400 rounded-lg px-4 py-3 text-xl text-right font-bold"
+              placeholder="入力しない場合はそのまま会計完了"
+            />
+            {payment > 0 && (
+              <div className={`mt-2 text-right text-lg font-bold ${change >= 0 ? 'text-green-700' : 'text-red-600'}`}>
+                お釣り: ¥{change.toLocaleString()}
+              </div>
+            )}
+            <button
+              onClick={handleCheckout}
+              disabled={saving}
+              className="mt-3 w-full bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-bold rounded-xl py-4 text-lg transition-colors"
+            >
+              {saving ? '処理中...' : '会計完了'}
+            </button>
+          </div>
+        ) : (
+          <>
+            <button
+              onClick={handleCheckoutStart}
+              className="mt-4 w-full bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-xl py-4 text-lg transition-colors"
+            >
+              会計へ進む
+            </button>
+            {checkoutError && (
+              <div className="mt-2 text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-4 py-3">
+                {checkoutError}
+              </div>
+            )}
+          </>
+        )}
+      </div>
 
     </div>
   )
