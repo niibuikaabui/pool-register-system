@@ -42,6 +42,7 @@ export default function Checkout() {
   const [tables, setTables] = useState([])
   const [currentTableId, setCurrentTableId] = useState(tableId)
   const [showMoveModal, setShowMoveModal] = useState(false)
+  const [lockedBlockFees, setLockedBlockFees] = useState({})
   const [saving, setSaving] = useState(false)
   const [checkoutError, setCheckoutError] = useState('')
   const [editingBlockId, setEditingBlockId] = useState(null)
@@ -62,6 +63,25 @@ export default function Checkout() {
     const t = setInterval(() => setTick(n => n + 1), 60000)
     return () => clearInterval(t)
   }, [])
+
+  // 完了済みブロックの料金をロック（pricing_typeが変わっても再計算しない）
+  useEffect(() => {
+    if (!session || pricing.length === 0) return
+    const origRate = pricing.find(p => p.customer_type === session.customer_type && p.pricing_type === session.pricing_type)
+    setLockedBlockFees(prev => {
+      const next = { ...prev }
+      for (const b of timeBlocks.filter(b => b.ended_at)) {
+        if (b.id in next) continue
+        if (!isFreetime(session.pricing_type) && origRate) {
+          const mins = Math.floor((new Date(b.ended_at) - new Date(b.started_at)) / 60000)
+          next[b.id] = mins > 0 ? roundUp50((origRate.price_per_minute || 0) * mins) : 0
+        } else {
+          next[b.id] = null // freetimeはnullで区別
+        }
+      }
+      return next
+    })
+  }, [session, pricing, timeBlocks])
 
   useEffect(() => {
     fetchMaster()
@@ -152,15 +172,21 @@ export default function Checkout() {
 
   // 注文履歴：全時間ブロック（進行中含む）+ ドリンク注文を時刻順で並べる
   const history = [
-    ...completedBlocks.map(b => ({
-      type: 'block',
-      sortTime: new Date(b.started_at),
-      id: b.id,
-      startTime: b.started_at,
-      endTime: b.ended_at,
-      fee: calcBlockFee(b),
-      isActive: false,
-    })),
+    ...completedBlocks.map(b => {
+      const locked = b.id in lockedBlockFees
+      const fee = locked ? (lockedBlockFees[b.id] ?? 0) : calcBlockFee(b)
+      const isLockedFreetime = locked && lockedBlockFees[b.id] === null
+      return {
+        type: 'block',
+        sortTime: new Date(b.started_at),
+        id: b.id,
+        startTime: b.started_at,
+        endTime: b.ended_at,
+        fee,
+        isLockedFreetime,
+        isActive: false,
+      }
+    }),
     ...(activeBlock ? [{
       type: 'block',
       sortTime: new Date(activeBlock.started_at),
@@ -216,6 +242,12 @@ export default function Checkout() {
         }
         await supabase.from('sessions').update({ total_play_fee: totalPlayFee }).eq('id', sessionId)
       }
+      // 終了時の料金をロック（以降の種別変更で再計算されないように）
+      const endedMins = Math.floor((new Date(data.ended_at) - new Date(data.started_at)) / 60000)
+      const endedFee = !isFreetime(pricingType) && rate && endedMins > 0
+        ? roundUp50((rate.price_per_minute || 0) * endedMins)
+        : 0
+      setLockedBlockFees(prev => ({ ...prev, [blockId]: isFreetime(pricingType) ? null : endedFee }))
     }
   }
 
@@ -766,7 +798,7 @@ export default function Checkout() {
                         取消
                       </button>
                     )}
-                    {item.type === 'block' && isFreetime(pricingType) ? (
+                    {item.type === 'block' && (item.isActive ? isFreetime(pricingType) : item.isLockedFreetime) ? (
                       <span className="text-xs text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full">フリータイム</span>
                     ) : (
                       <span className={`font-medium text-right ${item.cancelled ? 'text-gray-400 line-through' : item.isActive ? 'text-orange-500' : 'text-gray-600'}`}>
