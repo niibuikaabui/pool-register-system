@@ -156,8 +156,11 @@ export default function Checkout() {
     const rate = getRate()
     if (!rate) return 0
     if (isFreetime(pricingType)) return rate.freetime_price || 0
-    // 完了ブロック + 進行中ブロック（見積もり）の合計
-    return timeBlocks.reduce((sum, b) => sum + calcBlockFee(b), 0)
+    // 完了ブロックはロック済み料金を使用（種別変更・時間修正後も正確に反映）
+    const completedFee = completedBlocks.reduce((sum, b) => {
+      return sum + (b.id in lockedBlockFees ? (lockedBlockFees[b.id] ?? 0) : calcBlockFee(b))
+    }, 0)
+    return completedFee + (activeBlock ? calcBlockFee(activeBlock) : 0)
   }
 
   function calcFoodFee() {
