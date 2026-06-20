@@ -364,6 +364,14 @@ export default function Checkout() {
       }
       await supabase.from('sessions').update({ total_play_fee: totalPlayFee }).eq('id', sessionId)
     }
+
+    // 時間修正後にlockedBlockFeesも更新（修正後の時間で再ロック）
+    if (block.ended_at && rate) {
+      const editedEnd = update.ended_at || block.ended_at
+      const mins = Math.floor((new Date(editedEnd) - new Date(newStart)) / 60000)
+      const fee = !isFreetime(pricingType) && mins > 0 ? roundUp50((rate.price_per_minute || 0) * mins) : 0
+      setLockedBlockFees(prev => ({ ...prev, [block.id]: isFreetime(pricingType) ? null : fee }))
+    }
   }
 
   // ─── 台移動 ───
