@@ -2,6 +2,12 @@ export function roundUp50(n) {
   return Math.ceil(n / 50) * 50
 }
 
+export function toLocalDatetimeInput(isoStr) {
+  const d = new Date(isoStr)
+  const pad = n => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+
 /**
  * 経過時間を "X時間Y分" / "Y分" でフォーマット
  * @param {string|Date} startedAt
