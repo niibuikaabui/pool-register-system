@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { TYPE_LABEL, isFreetime } from '../lib/constants'
+import { roundUp50 } from '../lib/utils'
 
 function toLocalDateStr(dt) {
   const y = dt.getFullYear()
@@ -208,7 +209,7 @@ export default function Reports() {
       const ended = block.ended_at ? new Date(block.ended_at) : new Date()
       const mins = Math.floor((ended - new Date(block.started_at)) / 60000)
       if (mins <= 0) return 0
-      return Math.ceil(((rate?.price_per_minute || 0) * mins) / 50) * 50
+      return roundUp50((rate?.price_per_minute || 0) * mins)
     }
     const history = [
       ...(blocks || []).map(b => ({ type: 'block', sortTime: new Date(b.started_at), startTime: b.started_at, endTime: b.ended_at, fee: calcBlockFee(b) })),

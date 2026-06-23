@@ -1,3 +1,7 @@
+export function roundUp50(n) {
+  return Math.ceil(n / 50) * 50
+}
+
 /**
  * 経過時間を "X時間Y分" / "Y分" でフォーマット
  * @param {string|Date} startedAt

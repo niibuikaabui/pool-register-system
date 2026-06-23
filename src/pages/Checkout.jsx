@@ -2,13 +2,14 @@ import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
-import { TYPE_LABEL, PRICING_LABEL, CATEGORY_ICON, isFreetime } from '../lib/constants'
+import { isFreetime } from '../lib/constants'
+import { roundUp50 } from '../lib/utils'
 import TableMoveModal from '../components/TableMoveModal'
-import { fmtElapsed, fmtTime } from '../lib/utils'
-
-function roundUp50(n) {
-  return Math.ceil(n / 50) * 50
-}
+import MemberSection from '../components/checkout/MemberSection'
+import PlaySettings from '../components/checkout/PlaySettings'
+import MenuSection from '../components/checkout/MenuSection'
+import OrderHistory from '../components/checkout/OrderHistory'
+import CheckoutSection from '../components/checkout/CheckoutSection'
 
 function toLocalDatetimeInput(isoStr) {
   const d = new Date(isoStr)
@@ -538,53 +539,6 @@ export default function Checkout() {
     ? (currentTable.table_number === 99 ? 'その他' : `#${currentTable.table_number}台`)
     : ''
 
-  // メニューアイテムボタン（検索時・カテゴリ展開時で共用）
-  function MenuItemButton({ item }) {
-    const wouldGoNegative = item.category === 'discount' && grandTotal + item.price < 0
-    return (
-      <button
-        key={item.id}
-        onClick={() => addMenuItem(item)}
-        disabled={wouldGoNegative}
-        title={wouldGoNegative ? '割引後の合計がマイナスになるため選択できません' : undefined}
-        className={`px-3 py-2 rounded-lg text-sm transition-colors ${
-          wouldGoNegative
-            ? 'bg-gray-100 text-gray-300 cursor-not-allowed'
-            : flashedItemId === item.id
-              ? 'bg-green-400 text-white'
-              : 'bg-gray-100 hover:bg-gray-200'
-        }`}
-      >
-        {item.name}{' '}
-        <span className={wouldGoNegative ? 'text-gray-300' : 'text-gray-500'}>¥{item.price}</span>
-      </button>
-    )
-  }
-
-  // 時間ブロック編集フォーム（プレー設定・注文履歴の両方で使用）
-  function TimeBlockEditForm({ block, showEnd }) {
-    return (
-      <div className="mt-2 bg-blue-50 border border-blue-200 rounded-lg p-3 flex flex-col gap-2">
-        <div className="flex items-center gap-2">
-          <label className="text-xs text-gray-600 w-12 shrink-0">開始</label>
-          <input type="date" value={editStartDate} onChange={e => setEditStartDate(e.target.value)} className="border rounded px-2 py-1 text-sm" />
-          <input type="time" value={editStartTime} onChange={e => setEditStartTime(e.target.value)} className="border rounded px-2 py-1 text-sm w-24" />
-        </div>
-        {showEnd && (
-          <div className="flex items-center gap-2">
-            <label className="text-xs text-gray-600 w-12 shrink-0">終了</label>
-            <input type="date" value={editEndDate} onChange={e => setEditEndDate(e.target.value)} className="border rounded px-2 py-1 text-sm" />
-            <input type="time" value={editEndTime} onChange={e => setEditEndTime(e.target.value)} className="border rounded px-2 py-1 text-sm w-24" />
-          </div>
-        )}
-        <div className="flex gap-2 justify-end">
-          <button onClick={() => setEditingBlockId(null)} className="text-xs text-gray-400 px-3 py-1 rounded border">キャンセル</button>
-          <button onClick={() => saveEditBlock(block)} className="text-xs text-white bg-blue-500 hover:bg-blue-600 px-3 py-1 rounded">保存</button>
-        </div>
-      </div>
-    )
-  }
-
   // ─── レンダリング ───
 
   return (
@@ -614,338 +568,91 @@ export default function Checkout() {
         />
       )}
 
-      {/* ── お客様情報（任意） ── */}
-      <div className="bg-white rounded-xl shadow-sm p-4 mb-3">
-        <h2 className="font-semibold text-gray-700 mb-3">お客様情報（任意）</h2>
-        {memberId ? (
-          <div className="flex items-center gap-3">
-            <span className="text-green-700 font-medium">✓ {memberName || '会員選択済み'}</span>
-            <button onClick={handleMemberRemove} className="text-sm text-gray-400">解除</button>
-          </div>
-        ) : guestNameSaved && !editingGuestName ? (
-          <div className="flex items-center gap-3">
-            <span className="text-gray-700 font-medium">👤 {guestName}</span>
-            <button
-              onClick={() => { setGuestNameDraft(guestName); setEditingGuestName(true) }}
-              className="text-sm text-gray-400"
-            >変更</button>
-          </div>
-        ) : (
-          <div>
-            {/* 非会員の名前入力 */}
-            {editingGuestName ? (
-              <div className="mb-3 bg-blue-50 border border-blue-200 rounded-lg p-3 flex flex-col gap-2">
-                <div className="flex items-center gap-2">
-                  <label className="text-xs text-gray-600 w-12 shrink-0">お名前</label>
-                  <input
-                    value={guestNameDraft}
-                    onChange={e => setGuestNameDraft(e.target.value)}
-                    placeholder="例：田中さん"
-                    className="flex-1 border rounded px-2 py-1 text-sm"
-                    autoFocus
-                  />
-                </div>
-                <div className="flex gap-2 justify-end">
-                  <button onClick={() => setEditingGuestName(false)} className="text-xs text-gray-400 px-3 py-1 rounded border">キャンセル</button>
-                  <button onClick={handleGuestNameSave} className="text-xs text-white bg-blue-500 hover:bg-blue-600 px-3 py-1 rounded">保存</button>
-                </div>
-              </div>
-            ) : (
-              <div className="mb-3">
-                <label className="text-sm text-gray-600 mb-1 block">お名前（非会員）</label>
-                <input
-                  value={guestName}
-                  onChange={e => setGuestName(e.target.value)}
-                  onBlur={handleGuestNameBlur}
-                  placeholder="例：田中さん"
-                  className="w-full border rounded-lg px-3 py-2 text-sm"
-                />
-              </div>
-            )}
-            <div className="flex gap-2 mb-2">
-              <input
-                ref={barcodeRef}
-                value={memberSearch}
-                onChange={e => setMemberSearch(e.target.value)}
-                onKeyDown={handleBarcodeInput}
-                placeholder="会員検索（名前・会員番号・電話番号）"
-                className="flex-1 border rounded-lg px-3 py-2 text-sm"
-              />
-              <button onClick={() => searchMember(memberSearch)} className="bg-gray-200 hover:bg-gray-300 px-3 rounded-lg text-sm">
-                検索
-              </button>
-            </div>
-            {memberError && <p className="text-sm text-red-500 mt-1">{memberError}</p>}
-            {members.length > 0 && (
-              <div className="border rounded-lg divide-y">
-                {members.map(m => (
-                  <button
-                    key={m.id}
-                    onClick={() => handleMemberSelect(m)}
-                    className="w-full text-left px-3 py-2 hover:bg-gray-50 text-sm"
-                  >
-                    <span className="font-medium">{m.name}</span>
-                    <span className="text-gray-400 ml-2">#{m.member_number}</span>
-                    <span className="text-gray-400 ml-2">{TYPE_LABEL[m.customer_type]}</span>
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-      </div>
+      <MemberSection
+        memberId={memberId}
+        memberName={memberName}
+        memberSearch={memberSearch}
+        setMemberSearch={setMemberSearch}
+        members={members}
+        memberError={memberError}
+        guestName={guestName}
+        setGuestName={setGuestName}
+        guestNameSaved={guestNameSaved}
+        editingGuestName={editingGuestName}
+        setEditingGuestName={setEditingGuestName}
+        guestNameDraft={guestNameDraft}
+        setGuestNameDraft={setGuestNameDraft}
+        barcodeRef={barcodeRef}
+        onMemberSelect={handleMemberSelect}
+        onMemberRemove={handleMemberRemove}
+        onGuestNameSave={handleGuestNameSave}
+        onGuestNameBlur={handleGuestNameBlur}
+        onBarcodeInput={handleBarcodeInput}
+        onSearch={searchMember}
+      />
 
-      {/* ── プレー設定（時間コントロールを含む） ── */}
-      <div className="bg-white rounded-xl shadow-sm p-4 mb-3">
-        <h2 className="font-semibold text-gray-700 mb-3">プレー設定</h2>
+      <PlaySettings
+        customerType={customerType}
+        pricingType={pricingType}
+        activeBlock={activeBlock}
+        editingBlockId={editingBlockId}
+        rate={getRate()}
+        editStartDate={editStartDate}
+        setEditStartDate={setEditStartDate}
+        editStartTime={editStartTime}
+        setEditStartTime={setEditStartTime}
+        onCustomerTypeChange={handleCustomerTypeChange}
+        onPricingTypeChange={handlePricingTypeChange}
+        onStartBlock={startTimeBlock}
+        onEndBlock={endTimeBlock}
+        onOpenEdit={openEditBlock}
+        onSaveEdit={saveEditBlock}
+        onCancelEdit={() => setEditingBlockId(null)}
+      />
 
-        {/* 区分・種別 */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
-          <div>
-            <label className="text-sm text-gray-600 mb-1 block">区分</label>
-            <div className="flex gap-1">
-              {['general', 'female', 'university', 'high_school', 'staff'].map(t => (
-                <button
-                  key={t}
-                  onClick={() => handleCustomerTypeChange(t)}
-                  className={`flex-1 py-2 rounded-lg text-sm font-medium border ${
-                    customerType === t ? 'bg-green-700 text-white border-green-700' : 'border-gray-300 text-gray-700'
-                  }`}
-                >
-                  {TYPE_LABEL[t]}
-                </button>
-              ))}
-            </div>
-          </div>
-          <div>
-            <label className="text-sm text-gray-600 mb-1 block">種別</label>
-            <div className="grid grid-cols-2 gap-1">
-              {['hourly_multi', 'hourly_single', 'freetime_beer', 'freetime_no_beer'].map(v => {
-                const disabledFreetime = isFreetime(v) && (customerType === 'high_school' || customerType === 'staff')
-                const isDisabled = !!activeBlock || disabledFreetime
-                return (
-                  <button
-                    key={v}
-                    onClick={() => { if (!isDisabled) handlePricingTypeChange(v) }}
-                    disabled={isDisabled}
-                    title={disabledFreetime ? `${TYPE_LABEL[customerType]}はフリータイム不可` : undefined}
-                    className={`py-2 rounded-lg text-xs font-medium border whitespace-nowrap ${
-                      pricingType === v ? 'bg-blue-600 text-white border-blue-600' : 'border-gray-300 text-gray-700'
-                    } ${isDisabled ? 'opacity-30 cursor-not-allowed' : ''}`}
-                  >
-                    {PRICING_LABEL[v]}
-                  </button>
-                )
-              })}
-            </div>
-          </div>
-        </div>
+      <MenuSection
+        drinks={drinks}
+        alcohols={alcohols}
+        foods={foods}
+        discounts={discounts}
+        grandTotal={grandTotal}
+        menuSearch={menuSearch}
+        setMenuSearch={setMenuSearch}
+        openCategories={openCategories}
+        setOpenCategories={setOpenCategories}
+        flashedItemId={flashedItemId}
+        onAddItem={addMenuItem}
+      />
 
-        {/* 料金表示 */}
-        {getRate() && (
-          <p className="text-sm text-gray-500 mb-3">
-            {!isFreetime(pricingType)
-              ? `${PRICING_LABEL[pricingType]}: ${((getRate().price_per_minute || 0) * 60).toLocaleString()}円/時`
-              : `${PRICING_LABEL[pricingType]}: ${getRate().freetime_price?.toLocaleString()}円`}
-          </p>
-        )}
+      <OrderHistory
+        history={history}
+        pricingType={pricingType}
+        editingBlockId={editingBlockId}
+        editStartDate={editStartDate}
+        setEditStartDate={setEditStartDate}
+        editStartTime={editStartTime}
+        setEditStartTime={setEditStartTime}
+        editEndDate={editEndDate}
+        setEditEndDate={setEditEndDate}
+        editEndTime={editEndTime}
+        setEditEndTime={setEditEndTime}
+        onEditBlock={openEditBlock}
+        onCancelOrder={cancelOrderItem}
+        onSaveEdit={saveEditBlock}
+        onCancelEdit={() => setEditingBlockId(null)}
+      />
 
-        {/* 時間ブロック */}
-        <div className="border-t pt-3 mt-1">
-          {activeBlock ? (
-            <div>
-              <div className="flex items-center justify-between bg-green-50 border border-green-200 rounded-lg px-4 py-3">
-                <div className="text-sm">
-                  <span className="font-semibold text-green-800">▶ プレー中</span>
-                  <span className="text-gray-600 ml-3">{fmtTime(activeBlock.started_at)} 開始</span>
-                  {!isFreetime(pricingType) && (
-                    <>
-                      <span className="text-gray-500 ml-2">経過 {fmtElapsed(activeBlock.started_at, null)}</span>
-                      <button
-                        onClick={() => openEditBlock(activeBlock)}
-                        className="ml-3 text-xs text-blue-400 hover:text-blue-600 border border-blue-200 hover:border-blue-400 px-2 py-0.5 rounded transition-colors"
-                      >
-                        開始時刻を修正
-                      </button>
-                    </>
-                  )}
-                </div>
-                <button
-                  onClick={() => endTimeBlock(activeBlock.id)}
-                  className="bg-red-500 hover:bg-red-400 text-white px-4 py-2 rounded-lg text-sm font-bold transition-colors"
-                >
-                  ■ 終了
-                </button>
-              </div>
-              {editingBlockId === activeBlock.id && (
-                <TimeBlockEditForm block={activeBlock} showEnd={false} />
-              )}
-            </div>
-          ) : (
-            <button
-              onClick={startTimeBlock}
-              className="w-full bg-green-700 hover:bg-green-600 text-white font-bold rounded-lg py-3 text-sm transition-colors"
-            >
-              ▶ ビリヤード開始
-            </button>
-          )}
-        </div>
-      </div>
-
-      {/* ── ドリンク・フード ── */}
-      <div className="bg-white rounded-xl shadow-sm p-4 mb-3">
-        <h2 className="font-semibold text-gray-700 mb-3">ドリンク・フード</h2>
-        <input
-          type="text"
-          value={menuSearch}
-          onChange={e => setMenuSearch(e.target.value)}
-          placeholder="メニューを検索..."
-          className="w-full border rounded-lg px-3 py-2 text-sm mb-3 focus:outline-none focus:border-blue-400"
-        />
-        {menuSearch.trim() && filteredMenuItems.length === 0 ? (
-          <p className="text-sm text-gray-400 text-center py-3">「{menuSearch}」に一致するメニューはありません</p>
-        ) : (
-          [['🥤 ソフト', drinks], ['🍺 アルコール', alcohols], ['🍔 フード', foods], ['🏷️ 割引', discounts]].map(([label, items]) =>
-            items.length > 0 && (
-              <div key={label} className="mb-1">
-                {menuSearch.trim() ? (
-                  <div className="flex flex-wrap gap-2 mb-2">
-                    {items.map(item => <MenuItemButton key={item.id} item={item} />)}
-                  </div>
-                ) : (
-                  <>
-                    <button
-                      onClick={() => setOpenCategories(prev => ({ ...prev, [label]: !prev[label] }))}
-                      className="w-full flex items-center justify-between text-sm text-gray-600 font-medium py-2 hover:text-gray-800"
-                    >
-                      <span>{label} <span className="text-gray-400 font-normal">({items.length})</span></span>
-                      <span className="text-gray-400">{openCategories[label] ? '▲' : '▼'}</span>
-                    </button>
-                    {openCategories[label] && (
-                      <div className="flex flex-wrap gap-2 mb-2">
-                        {items.map(item => <MenuItemButton key={item.id} item={item} />)}
-                      </div>
-                    )}
-                  </>
-                )}
-              </div>
-            )
-          )
-        )}
-      </div>
-
-      {/* ── 注文履歴 ── */}
-      {history.length > 0 && (
-        <div className="bg-white rounded-xl shadow-sm p-4 mb-3">
-          <h2 className="font-semibold text-gray-700 mb-3">注文履歴</h2>
-          <div className="flex flex-col gap-2">
-            {history.map((item, i) => (
-              <div key={`${item.id}-${i}`} className={`text-sm ${item.cancelled ? 'opacity-40' : ''}`}>
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <span className="text-gray-400 text-xs shrink-0">{fmtTime(item.sortTime)}</span>
-                    {item.type === 'block' ? (
-                      <span className="text-gray-700">
-                        🎱 {fmtTime(item.startTime)}〜{item.endTime ? fmtTime(item.endTime) : <span className="text-green-600 font-medium">プレー中</span>}
-                        <span className="text-gray-400 ml-1">({fmtElapsed(item.startTime, item.endTime)})</span>
-                      </span>
-                    ) : (
-                      <span className={`text-gray-700 ${item.cancelled ? 'line-through' : ''}`}>
-                        {CATEGORY_ICON[item.category] ?? '🍹'} {item.name} ×{item.quantity}
-                      </span>
-                    )}
-                    {item.cancelled && (
-                      <span className="text-xs text-red-400 font-medium">キャンセル</span>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-2 shrink-0 ml-2">
-                    {item.type === 'block' && !item.isActive && editingBlockId !== item.id && (
-                      <button
-                        onClick={() => openEditBlock({ id: item.id, started_at: item.startTime, ended_at: item.endTime })}
-                        className="text-xs text-blue-400 hover:text-blue-600 border border-blue-200 hover:border-blue-400 px-2 py-0.5 rounded transition-colors"
-                      >
-                        修正
-                      </button>
-                    )}
-                    {item.type === 'order' && !item.cancelled && item.dbId && (
-                      <button
-                        onClick={() => cancelOrderItem(item.dbId)}
-                        className="text-xs text-red-400 hover:text-red-600 border border-red-200 hover:border-red-400 px-2 py-0.5 rounded transition-colors"
-                      >
-                        取消
-                      </button>
-                    )}
-                    {item.type === 'block' && (item.isActive ? isFreetime(pricingType) : item.isLockedFreetime) ? (
-                      <span className="text-xs text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full">フリータイム</span>
-                    ) : (
-                      <span className={`font-medium text-right ${item.cancelled ? 'text-gray-400 line-through' : item.isActive ? 'text-orange-500' : 'text-gray-600'}`}>
-                        {item.isActive && <span className="text-xs mr-1">概算</span>}
-                        ¥{item.fee.toLocaleString()}
-                      </span>
-                    )}
-                  </div>
-                </div>
-                {/* 時間編集UI */}
-                {item.type === 'block' && !item.isActive && editingBlockId === item.id && (
-                  <TimeBlockEditForm
-                    block={{ id: item.id, started_at: item.startTime, ended_at: item.endTime }}
-                    showEnd={!!item.endTime}
-                  />
-                )}
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* ── 合計・会計 ── */}
-      <div className="bg-white rounded-xl shadow-sm p-4 mb-4">
-        <div className="flex justify-between font-bold text-lg pt-2">
-          <span>合計</span>
-          <span>¥{grandTotal.toLocaleString()}</span>
-        </div>
-
-        {showPayment ? (
-          <div className="mt-4">
-            <label className="text-sm text-gray-600 mb-1 block">
-              お預かり金額（現金）<span className="text-gray-400 font-normal ml-1">任意</span>
-            </label>
-            <input
-              type="number"
-              value={paymentInput}
-              onChange={e => setPaymentInput(e.target.value)}
-              className="w-full border-2 border-blue-400 rounded-lg px-4 py-3 text-xl text-right font-bold"
-              placeholder="入力しない場合はそのまま会計完了"
-            />
-            {payment > 0 && (
-              <div className={`mt-2 text-right text-lg font-bold ${change >= 0 ? 'text-green-700' : 'text-red-600'}`}>
-                お釣り: ¥{change.toLocaleString()}
-              </div>
-            )}
-            <button
-              onClick={handleCheckout}
-              disabled={saving}
-              className="mt-3 w-full bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-bold rounded-xl py-4 text-lg transition-colors"
-            >
-              {saving ? '処理中...' : '会計完了'}
-            </button>
-          </div>
-        ) : (
-          <>
-            <button
-              onClick={handleCheckoutStart}
-              className="mt-4 w-full bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-xl py-4 text-lg transition-colors"
-            >
-              会計へ進む
-            </button>
-            {checkoutError && (
-              <div className="mt-2 text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-4 py-3">
-                {checkoutError}
-              </div>
-            )}
-          </>
-        )}
-      </div>
+      <CheckoutSection
+        grandTotal={grandTotal}
+        showPayment={showPayment}
+        paymentInput={paymentInput}
+        setPaymentInput={setPaymentInput}
+        saving={saving}
+        checkoutError={checkoutError}
+        change={change}
+        onCheckoutStart={handleCheckoutStart}
+        onCheckout={handleCheckout}
+      />
 
     </div>
   )

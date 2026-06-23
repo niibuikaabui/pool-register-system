@@ -3,10 +3,9 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 import { TYPE_LABEL, PRICING_LABEL, FREETIME_MINUTES, isFreetime } from '../lib/constants'
-import { fmtElapsed, freeTimeRemaining, freeTimeBadge } from '../lib/utils'
+import { fmtElapsed, freeTimeRemaining, freeTimeBadge, roundUp50 } from '../lib/utils'
 import TableMoveModal from '../components/TableMoveModal'
 
-function roundUp50(n) { return Math.ceil(n / 50) * 50 }
 
 export default function TableSlips() {
   const { tableId } = useParams()
