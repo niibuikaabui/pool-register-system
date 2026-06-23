@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
+import { useAuth } from '../contexts/AuthContext'
 import { TYPE_LABEL, PRICING_LABEL, FREETIME_MINUTES, isFreetime } from '../lib/constants'
 import { fmtElapsed, freeTimeRemaining, freeTimeBadge } from '../lib/utils'
 import TableMoveModal from '../components/TableMoveModal'
@@ -9,6 +10,7 @@ function roundUp50(n) { return Math.ceil(n / 50) * 50 }
 
 export default function TableSlips() {
   const { tableId } = useParams()
+  const { user } = useAuth()
   const [table, setTable] = useState(null)
   const [slips, setSlips] = useState([])
   const [pricing, setPricing] = useState([])
@@ -190,6 +192,7 @@ export default function TableSlips() {
         is_paid: true,
         total_food_fee: foodFee,
         grand_total: playFee + foodFee,
+        checked_by: user?.id || null,
       }).eq('id', slip.id)
     }))
     await supabase.from('tables').update({ status: 'empty', note: null }).eq('id', tableId)
@@ -221,7 +224,7 @@ export default function TableSlips() {
       }
       const { data: orderData } = await supabase.from('order_items').select('unit_price, quantity').eq('session_id', slip.id).is('cancelled_at', null)
       const foodFee = (orderData || []).reduce((sum, o) => sum + o.unit_price * o.quantity, 0)
-      await supabase.from('sessions').update({ total_play_fee: totalPlayFee, total_food_fee: foodFee, grand_total: totalPlayFee + foodFee }).eq('id', slip.id)
+      await supabase.from('sessions').update({ total_play_fee: totalPlayFee, total_food_fee: foodFee, grand_total: totalPlayFee + foodFee, checked_by: user?.id || null }).eq('id', slip.id)
     }))
 
     // 全伝票を会計済みに
