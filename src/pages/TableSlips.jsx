@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
-import { TYPE_LABEL, PRICING_LABEL, FREETIME_MINUTES } from '../lib/constants'
+import { TYPE_LABEL, PRICING_LABEL, FREETIME_MINUTES, isFreetime } from '../lib/constants'
 import { fmtElapsed, freeTimeRemaining, freeTimeBadge } from '../lib/utils'
 import TableMoveModal from '../components/TableMoveModal'
 
@@ -94,7 +94,7 @@ export default function TableSlips() {
     const rate = pricing.find(p => p.customer_type === slip.customer_type && p.pricing_type === slip.pricing_type)
     let playFee = slip.total_play_fee || 0
     if (slip.isPlaying && slip.playStartedAt && rate) {
-      if (slip.pricing_type === 'freetime') {
+      if (isFreetime(slip.pricing_type)) {
         playFee = rate.freetime_price || 0
       } else {
         const mins = Math.floor((new Date() - new Date(slip.playStartedAt)) / 60000)
@@ -130,7 +130,7 @@ export default function TableSlips() {
       const rate = pricing.find(p => p.customer_type === slip.customer_type && p.pricing_type === slip.pricing_type)
       let totalPlayFee = 0
       if (rate) {
-        if (slip.pricing_type === 'freetime') {
+        if (isFreetime(slip.pricing_type)) {
           totalPlayFee = rate.freetime_price || 0
         } else {
           totalPlayFee = (allBlocks || []).reduce((sum, b) => {
@@ -181,13 +181,53 @@ export default function TableSlips() {
   async function handleBulkPay() {
     setBulkPaying(true)
     const now = new Date().toISOString()
-    await Promise.all(slips.map(slip =>
-      supabase.from('sessions').update({
+    await Promise.all(slips.map(async slip => {
+      const { data: orderData } = await supabase.from('order_items').select('unit_price, quantity').eq('session_id', slip.id).is('cancelled_at', null)
+      const foodFee = (orderData || []).reduce((sum, o) => sum + o.unit_price * o.quantity, 0)
+      const playFee = slip.total_play_fee || 0
+      await supabase.from('sessions').update({
         ended_at: slip.ended_at || now,
         is_paid: true,
+        total_food_fee: foodFee,
+        grand_total: playFee + foodFee,
       }).eq('id', slip.id)
+    }))
+    await supabase.from('tables').update({ status: 'empty', note: null }).eq('id', tableId)
+    setBulkPaying(false)
+    navigate('/')
+  }
+
+  async function handleBulkEndAndPay() {
+    if (!confirm(`${slips.length}件を一括終了・会計しますか？`)) return
+    setBulkPaying(true)
+    const now = new Date().toISOString()
+
+    // プレー終了＋料金確定
+    await Promise.all(slips.filter(s => s.isPlaying).map(async slip => {
+      await supabase.from('time_blocks').update({ ended_at: now }).eq('session_id', slip.id).is('ended_at', null)
+      const { data: allBlocks } = await supabase.from('time_blocks').select('*').eq('session_id', slip.id)
+      const rate = pricing.find(p => p.customer_type === slip.customer_type && p.pricing_type === slip.pricing_type)
+      let totalPlayFee = 0
+      if (rate) {
+        if (isFreetime(slip.pricing_type)) {
+          totalPlayFee = rate.freetime_price || 0
+        } else {
+          totalPlayFee = (allBlocks || []).reduce((sum, b) => {
+            const ended = b.ended_at ? new Date(b.ended_at) : new Date(now)
+            const mins = Math.floor((ended - new Date(b.started_at)) / 60000)
+            return mins > 0 ? sum + roundUp50((rate.price_per_minute || 0) * mins) : sum
+          }, 0)
+        }
+      }
+      const { data: orderData } = await supabase.from('order_items').select('unit_price, quantity').eq('session_id', slip.id).is('cancelled_at', null)
+      const foodFee = (orderData || []).reduce((sum, o) => sum + o.unit_price * o.quantity, 0)
+      await supabase.from('sessions').update({ total_play_fee: totalPlayFee, total_food_fee: foodFee, grand_total: totalPlayFee + foodFee }).eq('id', slip.id)
+    }))
+
+    // 全伝票を会計済みに
+    await Promise.all(slips.map(slip =>
+      supabase.from('sessions').update({ ended_at: slip.ended_at || now, is_paid: true }).eq('id', slip.id)
     ))
-    // 台を空きに
     await supabase.from('tables').update({ status: 'empty', note: null }).eq('id', tableId)
     setBulkPaying(false)
     navigate('/')
@@ -249,7 +289,7 @@ export default function TableSlips() {
                   <div className="text-sm text-gray-500 flex flex-wrap gap-x-4 gap-y-1 items-center">
                     {slip.members && <span>👤 {slip.members.name}</span>}
                     {!slip.members && slip.guest_name && <span>👤 {slip.guest_name}</span>}
-                    {slip.isPlaying && slip.pricing_type !== 'freetime' && (
+                    {slip.isPlaying && !isFreetime(slip.pricing_type) && (
                       <>
                         <span>⏱ {fmtElapsed(slip.playStartedAt)}</span>
                         <span className="text-gray-400">
@@ -257,7 +297,7 @@ export default function TableSlips() {
                         </span>
                       </>
                     )}
-                    {slip.pricing_type === 'freetime' && slip.freetimeStartedAt && (() => {
+                    {isFreetime(slip.pricing_type) && slip.freetimeStartedAt && (() => {
                       const remaining = freeTimeRemaining(slip.freetimeStartedAt, FREETIME_MINUTES)
                       const badge = freeTimeBadge(remaining)
                       return (
@@ -297,8 +337,9 @@ export default function TableSlips() {
         </div>
       )}
 
-      {/* 全員合計 & まとめ払い */}
-      {slips.length > 0 && !slips.some(s => s.isPlaying) && (() => {
+      {/* 全員合計 & アクション */}
+      {slips.length > 0 && (() => {
+        const isAnyPlaying = slips.some(s => s.isPlaying)
         const grandTotal = slips.reduce((sum, s) => sum + calcSlipFee(s).total, 0)
         const payment = parseInt(bulkPayInput) || 0
         const change = payment - grandTotal
@@ -306,62 +347,76 @@ export default function TableSlips() {
           <div className="bg-white rounded-xl shadow-sm p-4 mb-4">
             <div className="flex justify-between items-center mb-3">
               <span className="font-semibold text-gray-700">全員合計</span>
-              <span className="text-2xl font-bold text-green-700">¥{grandTotal.toLocaleString()}</span>
+              <div className="text-right">
+                <span className={`text-2xl font-bold ${isAnyPlaying ? 'text-orange-500' : 'text-green-700'}`}>
+                  ¥{grandTotal.toLocaleString()}
+                </span>
+                {isAnyPlaying && <span className="text-xs text-orange-400 ml-1">概算</span>}
+              </div>
             </div>
-            {showBulkPay ? (
-              <div>
-                <label className="text-sm text-gray-600 mb-1 block">
-                  お預かり金額（現金）<span className="text-gray-400 font-normal ml-1">任意</span>
-                </label>
-                <input
-                  type="number"
-                  value={bulkPayInput}
-                  onChange={e => setBulkPayInput(e.target.value)}
-                  className="w-full border-2 border-blue-400 rounded-lg px-4 py-3 text-xl text-right font-bold mb-2"
-                  placeholder="入力しない場合はそのまま会計完了"
-                  autoFocus
-                />
-                {payment > 0 && (
-                  <div className={`text-right text-lg font-bold mb-3 ${change >= 0 ? 'text-green-700' : 'text-red-600'}`}>
-                    お釣り: ¥{change.toLocaleString()}
-                  </div>
-                )}
+
+            {isAnyPlaying ? (
+              <div className="flex flex-col gap-2">
                 <button
-                  onClick={handleBulkPay}
+                  onClick={handleBulkEndAndPay}
                   disabled={bulkPaying}
                   className="w-full bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-bold rounded-xl py-4 text-lg transition-colors"
                 >
-                  {bulkPaying ? '処理中...' : '会計完了（全員）'}
+                  {bulkPaying ? '処理中...' : `✓ 一括終了・会計（${slips.length}件）`}
                 </button>
                 <button
-                  onClick={() => { setShowBulkPay(false); setBulkPayInput('') }}
-                  className="w-full mt-2 text-gray-400 text-sm py-2"
+                  onClick={endAllPlay}
+                  disabled={endingPlay || bulkPaying}
+                  className="w-full bg-red-500 hover:bg-red-400 disabled:opacity-50 text-white font-bold rounded-xl py-3 text-base transition-colors"
                 >
-                  キャンセル
+                  {endingPlay ? '処理中...' : `■ プレーのみ一括終了（${slips.filter(s => s.isPlaying).length}件）`}
                 </button>
               </div>
             ) : (
-              <button
-                onClick={() => setShowBulkPay(true)}
-                className="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-xl py-3 text-base transition-colors"
-              >
-                まとめ払い
-              </button>
+              showBulkPay ? (
+                <div>
+                  <label className="text-sm text-gray-600 mb-1 block">
+                    お預かり金額（現金）<span className="text-gray-400 font-normal ml-1">任意</span>
+                  </label>
+                  <input
+                    type="number"
+                    value={bulkPayInput}
+                    onChange={e => setBulkPayInput(e.target.value)}
+                    className="w-full border-2 border-blue-400 rounded-lg px-4 py-3 text-xl text-right font-bold mb-2"
+                    placeholder="入力しない場合はそのまま会計完了"
+                    autoFocus
+                  />
+                  {payment > 0 && (
+                    <div className={`text-right text-lg font-bold mb-3 ${change >= 0 ? 'text-green-700' : 'text-red-600'}`}>
+                      お釣り: ¥{change.toLocaleString()}
+                    </div>
+                  )}
+                  <button
+                    onClick={handleBulkPay}
+                    disabled={bulkPaying}
+                    className="w-full bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-bold rounded-xl py-4 text-lg transition-colors"
+                  >
+                    {bulkPaying ? '処理中...' : '会計完了（全員）'}
+                  </button>
+                  <button
+                    onClick={() => { setShowBulkPay(false); setBulkPayInput('') }}
+                    className="w-full mt-2 text-gray-400 text-sm py-2"
+                  >
+                    キャンセル
+                  </button>
+                </div>
+              ) : (
+                <button
+                  onClick={() => setShowBulkPay(true)}
+                  className="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-xl py-3 text-base transition-colors"
+                >
+                  まとめ払い
+                </button>
+              )
             )}
           </div>
         )
       })()}
-
-      {/* 一括プレー終了ボタン */}
-      {slips.some(s => s.isPlaying) && (
-        <button
-          onClick={endAllPlay}
-          disabled={endingPlay}
-          className="w-full bg-red-500 hover:bg-red-400 disabled:opacity-50 text-white font-bold rounded-xl py-4 text-lg transition-colors mb-3"
-        >
-          {endingPlay ? '処理中...' : `■ この台のプレーを一括終了（${slips.filter(s => s.isPlaying).length}件）`}
-        </button>
-      )}
 
       {/* Add slip button */}
       <button
