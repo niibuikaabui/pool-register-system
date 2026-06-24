@@ -14,7 +14,11 @@ import { roundUp50, toLocalDatetimeInput } from '../lib/utils'
  */
 export function useTimeBlocks(sessionId, pricingType, rate, session, pricing) {
   const [timeBlocks, setTimeBlocks] = useState([])
+  // 完了済みブロックの料金をロック（種別変更・時間修正後も正確に反映）
+  // null は廃止 — フリータイムブロックも実額を格納する
   const [lockedBlockFees, setLockedBlockFees] = useState({})
+  // フリータイムとして完了したブロックの ID セット（バッジ表示用）
+  const [lockedFreetimeIds, setLockedFreetimeIds] = useState(new Set())
   const [tick, setTick] = useState(0)
   const [editingBlockId, setEditingBlockId] = useState(null)
   const [editStartDate, setEditStartDate] = useState('')
@@ -28,25 +32,39 @@ export function useTimeBlocks(sessionId, pricingType, rate, session, pricing) {
     return () => clearInterval(t)
   }, [])
 
-  // 完了済みブロックの料金をロック（pricing_type が変わっても再計算しない）
+  // 完了済みブロックの料金をロック（ページロード時・新規完了時に未登録分を処理）
   useEffect(() => {
     if (!session || pricing.length === 0) return
     const origRate = pricing.find(
       p => p.customer_type === session.customer_type && p.pricing_type === session.pricing_type
     )
+    let newFreetimeIds = []
     setLockedBlockFees(prev => {
       const next = { ...prev }
+      newFreetimeIds = []
       for (const b of timeBlocks.filter(b => b.ended_at)) {
         if (b.id in next) continue
-        if (!isFreetime(session.pricing_type) && origRate) {
-          const mins = Math.floor((new Date(b.ended_at) - new Date(b.started_at)) / 60000)
-          next[b.id] = mins > 0 ? roundUp50((origRate.price_per_minute || 0) * mins) : 0
+        if (origRate) {
+          if (!isFreetime(session.pricing_type)) {
+            const mins = Math.floor((new Date(b.ended_at) - new Date(b.started_at)) / 60000)
+            next[b.id] = mins > 0 ? roundUp50((origRate.price_per_minute || 0) * mins) : 0
+          } else {
+            next[b.id] = origRate.freetime_price || 0
+            newFreetimeIds.push(b.id)
+          }
         } else {
-          next[b.id] = null // フリータイムは null で区別
+          next[b.id] = 0
         }
       }
       return next
     })
+    if (newFreetimeIds.length > 0) {
+      setLockedFreetimeIds(prev => {
+        const s = new Set(prev)
+        for (const id of newFreetimeIds) s.add(id)
+        return s
+      })
+    }
   }, [session, pricing, timeBlocks])
 
   // time_blocks のロードとリアルタイム購読
@@ -85,24 +103,24 @@ export function useTimeBlocks(sessionId, pricingType, rate, session, pricing) {
     return roundUp50((rate.price_per_minute || 0) * mins)
   }
 
-  function calcTotalPlayFeeFromBlocks(blocks) {
-    if (!rate) return 0
-    if (isFreetime(pricingType)) return rate.freetime_price || 0
+  // sessions.total_play_fee 保存用の合計計算。
+  // 新規終了ブロック（未ロック）は newBlockId/newBlockFee で明示的に渡す。
+  function calcTotalPlayFeeFromBlocks(blocks, newBlockId = null, newBlockFee = 0) {
     return blocks
       .filter(b => b.ended_at)
       .reduce((sum, b) => {
-        const mins = Math.floor((new Date(b.ended_at) - new Date(b.started_at)) / 60000)
-        if (mins <= 0) return sum
-        return sum + roundUp50((rate.price_per_minute || 0) * mins)
+        if (b.id === newBlockId) return sum + newBlockFee
+        return sum + (lockedBlockFees[b.id] ?? 0)
       }, 0)
   }
 
   function calcPlayFee() {
     if (!rate) return 0
     if (isFreetime(pricingType)) return rate.freetime_price || 0
-    // 完了ブロックはロック済み料金を使用（種別変更・時間修正後も正確に反映）
+    // 完了ブロックはロック済み料金を使用（種別変更後も正確に反映）
+    // フリータイムブロックのロック料金には freetime_price の実額が入っている
     const completedFee = completedBlocks.reduce((sum, b) => {
-      return sum + (b.id in lockedBlockFees ? (lockedBlockFees[b.id] ?? 0) : calcBlockFee(b))
+      return sum + (b.id in lockedBlockFees ? lockedBlockFees[b.id] : calcBlockFee(b))
     }, 0)
     return completedFee + (activeBlock ? calcBlockFee(activeBlock) : 0)
   }
@@ -112,9 +130,7 @@ export function useTimeBlocks(sessionId, pricingType, rate, session, pricing) {
   // ブロック部分の履歴（注文との合成は呼び出し元で行う）
   const blockHistory = [
     ...completedBlocks.map(b => {
-      const locked = b.id in lockedBlockFees
-      const fee = locked ? (lockedBlockFees[b.id] ?? 0) : calcBlockFee(b)
-      const isLockedFreetime = locked && lockedBlockFees[b.id] === null
+      const fee = b.id in lockedBlockFees ? lockedBlockFees[b.id] : calcBlockFee(b)
       return {
         type: 'block',
         sortTime: new Date(b.started_at),
@@ -122,7 +138,7 @@ export function useTimeBlocks(sessionId, pricingType, rate, session, pricing) {
         startTime: b.started_at,
         endTime: b.ended_at,
         fee,
-        isLockedFreetime,
+        isLockedFreetime: lockedFreetimeIds.has(b.id),
         isActive: false,
       }
     }),
@@ -155,18 +171,22 @@ export function useTimeBlocks(sessionId, pricingType, rate, session, pricing) {
       const updatedBlocks = timeBlocks.map(b => b.id === blockId ? data : b)
       setTimeBlocks(updatedBlocks)
 
+      const endedMins = Math.floor((new Date(data.ended_at) - new Date(data.started_at)) / 60000)
+      const endedFee = isFreetime(pricingType)
+        ? (rate?.freetime_price || 0)
+        : (rate && endedMins > 0 ? roundUp50((rate.price_per_minute || 0) * endedMins) : 0)
+
       // プレー終了時に total_play_fee を sessions に保存（伝票一覧の合計額に反映するため）
       if (rate) {
-        const totalPlayFee = calcTotalPlayFeeFromBlocks(updatedBlocks)
+        const totalPlayFee = calcTotalPlayFeeFromBlocks(updatedBlocks, blockId, endedFee)
         await supabase.from('sessions').update({ total_play_fee: totalPlayFee }).eq('id', sessionId)
       }
 
       // 終了時の料金をロック（以降の種別変更で再計算されないように）
-      const endedMins = Math.floor((new Date(data.ended_at) - new Date(data.started_at)) / 60000)
-      const endedFee = !isFreetime(pricingType) && rate && endedMins > 0
-        ? roundUp50((rate.price_per_minute || 0) * endedMins)
-        : 0
-      setLockedBlockFees(prev => ({ ...prev, [blockId]: isFreetime(pricingType) ? null : endedFee }))
+      setLockedBlockFees(prev => ({ ...prev, [blockId]: endedFee }))
+      if (isFreetime(pricingType)) {
+        setLockedFreetimeIds(prev => new Set([...prev, blockId]))
+      }
     }
   }
 
@@ -218,18 +238,19 @@ export function useTimeBlocks(sessionId, pricingType, rate, session, pricing) {
     setTimeBlocks(updatedBlocks)
     setEditingBlockId(null)
 
-    // 時間修正後に total_play_fee を再計算してsessionsに保存（伝票一覧の合計額に反映するため）
-    if (rate) {
-      const totalPlayFee = calcTotalPlayFeeFromBlocks(updatedBlocks)
-      await supabase.from('sessions').update({ total_play_fee: totalPlayFee }).eq('id', sessionId)
-    }
-
-    // 時間修正後にlockedBlockFeesも更新（修正後の時間で再ロック）
     if (block.ended_at && rate) {
       const editedEnd = update.ended_at || block.ended_at
       const mins = Math.floor((new Date(editedEnd) - new Date(newStart)) / 60000)
-      const fee = !isFreetime(pricingType) && mins > 0 ? roundUp50((rate.price_per_minute || 0) * mins) : 0
-      setLockedBlockFees(prev => ({ ...prev, [block.id]: isFreetime(pricingType) ? null : fee }))
+      // フリータイムブロックはフラット料金のため時間修正しても金額不変
+      const newFee = lockedFreetimeIds.has(block.id)
+        ? (lockedBlockFees[block.id] ?? 0)
+        : (!isFreetime(pricingType) && mins > 0 ? roundUp50((rate.price_per_minute || 0) * mins) : 0)
+
+      // 時間修正後に total_play_fee を再計算してsessionsに保存
+      const totalPlayFee = calcTotalPlayFeeFromBlocks(updatedBlocks, block.id, newFee)
+      await supabase.from('sessions').update({ total_play_fee: totalPlayFee }).eq('id', sessionId)
+
+      setLockedBlockFees(prev => ({ ...prev, [block.id]: newFee }))
     }
   }
 
