@@ -10,12 +10,12 @@ function toLocalDateStr(dt) {
   return `${y}-${m}-${d}`
 }
 
-function getBusinessDate(datetimeStr, businessStartTime) {
-  // businessStartTime: "HH:MM:SS" or "HH:MM"
+function getBusinessDate(datetimeStr, businessEndTime) {
+  // businessEndTime: "HH:MM:SS" or "HH:MM"
+  // 営業終了時刻より前（深夜〜早朝）は前日の営業日に計上する
   const dt = new Date(datetimeStr)
-  const [startH] = (businessStartTime || '00:00').split(':').map(Number)
-  // If time is before business_start_time, it belongs to the previous business day
-  if (dt.getHours() < startH) {
+  const [endH] = (businessEndTime || '00:00').split(':').map(Number)
+  if (dt.getHours() < endH) {
     dt.setDate(dt.getDate() - 1)
   }
   return toLocalDateStr(dt)
@@ -118,12 +118,12 @@ export default function Reports() {
     setLoading(false)
   }
 
-  const startTime = shopSettings?.business_start_time || '00:00'
+  const endTime = shopSettings?.business_end_time || '00:00'
 
   // Group by business date
   const grouped = {}
   sessions.forEach(s => {
-    const d = getBusinessDate(s.ended_at, startTime)
+    const d = getBusinessDate(s.ended_at, endTime)
     if (!grouped[d]) grouped[d] = []
     grouped[d].push(s)
   })
