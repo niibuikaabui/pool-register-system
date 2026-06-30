@@ -44,7 +44,7 @@ export default function Checkout() {
   // ── カスタムフック ──
   const member = useMemberSearch(sessionId, { onCustomerTypeChange: setCustomerType })
   const rate = pricing.find(p => p.customer_type === customerType && p.pricing_type === pricingType)
-  const tb = useTimeBlocks(sessionId, pricingType, rate, session, pricing)
+  const tb = useTimeBlocks(sessionId, pricingType, rate)
 
   // ─── データ取得 ───
 
