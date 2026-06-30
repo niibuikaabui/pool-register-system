@@ -73,8 +73,12 @@ export function useTimeBlocks(sessionId, pricingType, rate, session, pricing) {
   function calcPlayFee() {
     if (!rate) return 0
     if (isFreetime(pricingType)) return rate.freetime_price || 0
-    // 完了ブロックはDB保存済みのlocked_feeを使用（種別変更・リロード後も正確に反映）
-    const completedFee = completedBlocks.reduce((sum, b) => sum + (b.locked_fee ?? 0), 0)
+    // 完了ブロックはDB保存済みのlocked_feeを優先。null（旧データ・レート未ロード時）はタイムスタンプから再計算
+    const completedFee = completedBlocks.reduce((sum, b) => {
+      if (b.locked_fee !== null) return sum + b.locked_fee
+      const mins = Math.floor((new Date(b.ended_at) - new Date(b.started_at)) / 60000)
+      return sum + (mins > 0 ? roundUp50((rate.price_per_minute || 0) * mins) : 0)
+    }, 0)
     return completedFee + (activeBlock ? calcBlockFee(activeBlock) : 0)
   }
 
@@ -83,9 +87,17 @@ export function useTimeBlocks(sessionId, pricingType, rate, session, pricing) {
   // ブロック部分の履歴（注文との合成は呼び出し元で行う）
   const blockHistory = [
     ...completedBlocks.map(b => {
-      // locked_fee === null かつ ended_at あり → フリータイムブロック
-      const isLockedFreetime = b.locked_fee === null
-      const fee = b.locked_fee ?? 0
+      // locked_fee === null かつ ended_at あり かつ現在の種別もフリータイム → フリータイムブロック
+      const isLockedFreetime = b.locked_fee === null && isFreetime(pricingType)
+      let fee
+      if (b.locked_fee !== null) {
+        fee = b.locked_fee
+      } else if (!isFreetime(pricingType) && rate) {
+        const mins = Math.floor((new Date(b.ended_at) - new Date(b.started_at)) / 60000)
+        fee = mins > 0 ? roundUp50((rate.price_per_minute || 0) * mins) : 0
+      } else {
+        fee = 0
+      }
       return {
         type: 'block',
         sortTime: new Date(b.started_at),
