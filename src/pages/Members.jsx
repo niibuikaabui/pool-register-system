@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { TYPE_LABEL } from '../lib/constants'
+import { useAuth } from '../contexts/AuthContext'
 
 const EMPTY_FORM = { name: '', customer_type: 'general', phone: '', birthday: '', notes: '' }
 
@@ -13,18 +14,21 @@ export default function Members() {
   const [editId, setEditId] = useState(null)
   const [editMemberNumber, setEditMemberNumber] = useState('')
   const [saving, setSaving] = useState(false)
+  const [showDeleted, setShowDeleted] = useState(false)
   const searchRef = useRef(null)
+  const { isAdmin } = useAuth()
 
   useEffect(() => { fetchMembers() }, [])
 
   useEffect(() => {
     const t = setTimeout(() => fetchMembers(search), 300)
     return () => clearTimeout(t)
-  }, [search])
+  }, [search, showDeleted])
 
   async function fetchMembers(q = '') {
     setLoading(true)
     let query = supabase.from('members').select('*').order('visit_count', { ascending: false, nullsFirst: false }).order('member_number', { ascending: false })
+    query = query.eq('is_deleted', showDeleted)
     if (q) {
       const numVal = parseInt(q)
       const filters = [`name.ilike.%${q}%`, `phone.ilike.%${q}%`]
@@ -34,6 +38,19 @@ export default function Members() {
     const { data } = await query.limit(50)
     setMembers(data || [])
     setLoading(false)
+  }
+
+  async function handleDelete(m) {
+    if (!confirm(`「${m.name}」を削除しますか？\n（データは保持され、後から復活できます）`)) return
+    const { error } = await supabase.from('members').update({ is_deleted: true }).eq('id', m.id)
+    if (error) { alert('削除エラー: ' + error.message); return }
+    fetchMembers(search)
+  }
+
+  async function handleRestore(m) {
+    const { error } = await supabase.from('members').update({ is_deleted: false }).eq('id', m.id)
+    if (error) { alert('復活エラー: ' + error.message); return }
+    fetchMembers(search)
   }
 
   async function handleSave() {
@@ -86,12 +103,24 @@ export default function Members() {
     <div>
       <div className="flex justify-between items-center mb-4">
         <h1 className="text-xl font-bold text-gray-800">会員管理</h1>
-        <button
-          onClick={() => { setForm(EMPTY_FORM); setEditId(null); setShowForm(true) }}
-          className="bg-green-700 hover:bg-green-600 text-white px-4 py-2 rounded-lg text-sm font-medium"
-        >
-          + 新規登録
-        </button>
+        <div className="flex gap-2">
+          {isAdmin && (
+            <button
+              onClick={() => setShowDeleted(v => !v)}
+              className={`px-4 py-2 rounded-lg text-sm font-medium border ${showDeleted ? 'bg-red-100 text-red-700 border-red-300' : 'bg-gray-100 text-gray-600 border-gray-300'}`}
+            >
+              {showDeleted ? '削除済み表示中' : '削除済みを表示'}
+            </button>
+          )}
+          {!showDeleted && (
+            <button
+              onClick={() => { setForm(EMPTY_FORM); setEditId(null); setShowForm(true) }}
+              className="bg-green-700 hover:bg-green-600 text-white px-4 py-2 rounded-lg text-sm font-medium"
+            >
+              + 新規登録
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Search */}
@@ -131,7 +160,7 @@ export default function Members() {
               <div>
                 <label className="text-sm font-medium text-gray-700 mb-1 block">区分 *</label>
                 <div className="flex gap-2">
-                  {['general', 'female', 'university', 'high_school'].map(t => (
+                  {['general', 'female', 'university', 'high_school', 'staff'].map(t => (
                     <button
                       key={t}
                       onClick={() => setForm(f => ({ ...f, customer_type: t }))}
@@ -200,7 +229,7 @@ export default function Members() {
           ) : (
             <div className="divide-y">
               {members.map(m => (
-                <div key={m.id} className="flex items-center gap-3 px-4 py-3 hover:bg-gray-50">
+                <div key={m.id} className={`flex items-center gap-3 px-4 py-3 hover:bg-gray-50 ${m.is_deleted ? 'opacity-60' : ''}`}>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
                       <span className="font-medium text-gray-800">{m.name}</span>
@@ -213,12 +242,33 @@ export default function Members() {
                       <span>累計: ¥{(m.total_spent || 0).toLocaleString()}</span>
                     </div>
                   </div>
-                  <button
-                    onClick={() => startEdit(m)}
-                    className="text-sm text-blue-600 hover:text-blue-800 px-3 py-1 rounded border border-blue-200 hover:border-blue-400"
-                  >
-                    編集
-                  </button>
+                  {m.is_deleted ? (
+                    isAdmin && (
+                      <button
+                        onClick={() => handleRestore(m)}
+                        className="text-sm text-green-600 hover:text-green-800 px-3 py-1 rounded border border-green-200 hover:border-green-400"
+                      >
+                        復活
+                      </button>
+                    )
+                  ) : (
+                    <>
+                      <button
+                        onClick={() => startEdit(m)}
+                        className="text-sm text-blue-600 hover:text-blue-800 px-3 py-1 rounded border border-blue-200 hover:border-blue-400"
+                      >
+                        編集
+                      </button>
+                      {isAdmin && (
+                        <button
+                          onClick={() => handleDelete(m)}
+                          className="text-sm text-red-500 hover:text-red-700 px-3 py-1 rounded border border-red-200 hover:border-red-400"
+                        >
+                          削除
+                        </button>
+                      )}
+                    </>
+                  )}
                 </div>
               ))}
             </div>
