@@ -44,7 +44,8 @@
 4. スモーク（scripts/smoke_refactor.mjs）: Dashboard／Reports 表示OK・コンソールエラー0
 
 ## 完了
-（コミットハッシュは下記コマンド実行後に記載）
+dev ブランチにコミット済み: `47a44c0`
+（このログ自体もコミットに含まれる。ハッシュ追記分のみ未コミットの差分として残る）
 
 ## 検証メモ
 - 既存の未コミット変更のうち constants.js / Members.jsx / package.json / .claude/* は
