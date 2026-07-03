@@ -3,6 +3,8 @@ import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 import { isFreetime } from '../lib/constants'
+import { findRate, calcFoodFee, calcSessionPlayFee } from '../lib/fees'
+import { moveSlipToTable, releaseTableIfNoUnpaid, endActiveBlocks } from '../lib/sessionOps'
 import { useMemberSearch } from '../hooks/useMemberSearch'
 import { useTimeBlocks } from '../hooks/useTimeBlocks'
 import TableMoveModal from '../components/TableMoveModal'
@@ -43,7 +45,7 @@ export default function Checkout() {
 
   // ── カスタムフック ──
   const member = useMemberSearch(sessionId, { onCustomerTypeChange: setCustomerType })
-  const rate = pricing.find(p => p.customer_type === customerType && p.pricing_type === pricingType)
+  const rate = findRate(pricing, customerType, pricingType)
   const tb = useTimeBlocks(sessionId, pricingType, rate)
 
   // ─── データ取得 ───
@@ -120,15 +122,7 @@ export default function Checkout() {
   // ─── 台移動 ───
 
   async function handleMoveTable(newTableId) {
-    const oldTableId = currentTableId
-    await supabase.from('sessions').update({ table_id: newTableId }).eq('id', sessionId)
-    await supabase.from('tables').update({ status: 'in_use' }).eq('id', newTableId)
-    const { data: remaining } = await supabase
-      .from('sessions').select('id')
-      .eq('table_id', oldTableId).eq('is_paid', false).neq('id', sessionId)
-    if (!remaining || remaining.length === 0) {
-      await supabase.from('tables').update({ status: 'empty' }).eq('id', oldTableId)
-    }
+    await moveSlipToTable(sessionId, currentTableId, newTableId)
     setCurrentTableId(newTableId)
     setShowMoveModal(false)
   }
@@ -149,15 +143,14 @@ export default function Checkout() {
 
     let finalPlayFee = tb.playFee
 
-    // 進行中のブロックを自動終了
+    // 進行中のブロックを自動終了（通常は handleCheckoutStart でガード済み）
     if (tb.activeBlock) {
-      const now = new Date().toISOString()
-      await supabase.from('time_blocks').update({ ended_at: now }).eq('id', tb.activeBlock.id)
-      finalPlayFee = tb.completedBlocks.reduce((sum, b) => sum + tb.calcBlockFee(b), 0)
-        + tb.calcBlockFee({ ...tb.activeBlock, ended_at: now })
-      if (isFreetime(pricingType)) {
-        finalPlayFee = rate?.freetime_price || 0
-      }
+      const endedAt = new Date().toISOString()
+      await endActiveBlocks(sessionId, pricingType, rate, endedAt)
+      finalPlayFee = calcSessionPlayFee(
+        [...tb.completedBlocks, { ...tb.activeBlock, ended_at: endedAt }],
+        pricingType, rate
+      )
     }
 
     const finalTotal = finalPlayFee + foodFee
@@ -175,16 +168,7 @@ export default function Checkout() {
     }).eq('id', sessionId)
 
     const activeTableId = currentTableId || session?.table_id
-    const { data: remaining } = await supabase
-      .from('sessions')
-      .select('id')
-      .eq('table_id', activeTableId)
-      .eq('is_paid', false)
-      .neq('id', sessionId)
-
-    if (!remaining || remaining.length === 0) {
-      await supabase.from('tables').update({ status: 'empty', note: null }).eq('id', activeTableId)
-    }
+    const hasRemaining = await releaseTableIfNoUnpaid(activeTableId, sessionId, { clearNote: true })
 
     if (member.memberId) {
       const { data: m } = await supabase.from('members').select('visit_count, total_spent').eq('id', member.memberId).single()
@@ -196,7 +180,7 @@ export default function Checkout() {
       }
     }
 
-    if (remaining && remaining.length > 0) {
+    if (hasRemaining) {
       navigate(`/table/${activeTableId}`)
     } else {
       navigate('/')
@@ -205,7 +189,7 @@ export default function Checkout() {
 
   // ─── 派生データ ───
 
-  const foodFee = orderItems.filter(i => !i.cancelled_at).reduce((sum, i) => sum + i.unit_price * i.quantity, 0)
+  const foodFee = calcFoodFee(orderItems)
   const grandTotal = tb.playFee + foodFee
   const change = (parseInt(paymentInput) || 0) - grandTotal
 

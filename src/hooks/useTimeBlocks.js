@@ -1,7 +1,14 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { isFreetime } from '../lib/constants'
-import { roundUp50, toLocalDatetimeInput } from '../lib/utils'
+import { toLocalDatetimeInput } from '../lib/utils'
+import {
+  calcBlockFee as calcBlockFeeBase,
+  calcCompletedBlockFee,
+  calcHourlyFee,
+  calcLockedFee,
+  calcSessionPlayFee,
+} from '../lib/fees'
 
 export function useTimeBlocks(sessionId, pricingType, rate) {
   const [timeBlocks, setTimeBlocks] = useState([])
@@ -43,30 +50,17 @@ export function useTimeBlocks(sessionId, pricingType, rate) {
   const activeBlock = timeBlocks.find(b => !b.ended_at)
   const completedBlocks = timeBlocks.filter(b => b.ended_at)
 
-  // ─── 料金計算 ───
+  // ─── 料金計算（実体は lib/fees.js。現在の pricingType・rate を束縛したラッパー） ───
 
-  // タイムスタンプから料金を計算（アクティブブロックの概算・フォールバック用）
   function calcBlockFee(block) {
-    if (!rate || isFreetime(pricingType)) return 0
-    const ended = block.ended_at ? new Date(block.ended_at) : new Date()
-    const mins = Math.floor((ended - new Date(block.started_at)) / 60000)
-    if (mins <= 0) return 0
-    return roundUp50((rate.price_per_minute || 0) * mins)
+    return calcBlockFeeBase(block, pricingType, rate)
   }
 
-  // 完了ブロックの料金: locked_fee優先、null（旧データ・レート未ロード時）はタイムスタンプから再計算
-  function calcCompletedBlockFee(block) {
-    return block.locked_fee !== null ? block.locked_fee : calcBlockFee(block)
+  function calcCompletedFee(block) {
+    return calcCompletedBlockFee(block, pricingType, rate)
   }
 
-  function calcPlayFee() {
-    if (!rate) return 0
-    if (isFreetime(pricingType)) return rate.freetime_price || 0
-    const completedFee = completedBlocks.reduce((sum, b) => sum + calcCompletedBlockFee(b), 0)
-    return completedFee + (activeBlock ? calcBlockFee(activeBlock) : 0)
-  }
-
-  const playFee = calcPlayFee()
+  const playFee = calcSessionPlayFee(timeBlocks, pricingType, rate)
 
   const blockHistory = [
     ...completedBlocks.map(b => ({
@@ -77,7 +71,7 @@ export function useTimeBlocks(sessionId, pricingType, rate) {
       endTime: b.ended_at,
       // locked_fee===null かつ現在フリータイム → フリータイムブロックとして表示
       isLockedFreetime: b.locked_fee === null && isFreetime(pricingType),
-      fee: calcCompletedBlockFee(b),
+      fee: calcCompletedFee(b),
       isActive: false,
     })),
     ...(activeBlock ? [{
@@ -90,6 +84,13 @@ export function useTimeBlocks(sessionId, pricingType, rate) {
       isActive: true,
     }] : []),
   ]
+
+  // 完了ブロックのみの合計を sessions.total_play_fee に保存（rate 未ロード時は更新しない）
+  async function persistCompletedPlayFee(blocks) {
+    if (!rate) return
+    const totalPlayFee = calcSessionPlayFee(blocks.filter(b => b.ended_at), pricingType, rate)
+    await supabase.from('sessions').update({ total_play_fee: totalPlayFee }).eq('id', sessionId)
+  }
 
   // ─── 時間ブロック操作 ───
 
@@ -106,11 +107,7 @@ export function useTimeBlocks(sessionId, pricingType, rate) {
     const block = timeBlocks.find(b => b.id === blockId)
 
     // フリータイムはlocked_fee=NULL、時間制は計算値（rateが未ロードの場合もNULL→UI側でフォールバック計算）
-    let lockedFee = null
-    if (!isFreetime(pricingType) && rate && block) {
-      const mins = Math.floor((new Date(endedAt) - new Date(block.started_at)) / 60000)
-      lockedFee = mins > 0 ? roundUp50((rate.price_per_minute || 0) * mins) : 0
-    }
+    const lockedFee = block ? calcLockedFee(block.started_at, endedAt, pricingType, rate) : null
 
     const { data } = await supabase.from('time_blocks').update({
       ended_at: endedAt,
@@ -120,13 +117,7 @@ export function useTimeBlocks(sessionId, pricingType, rate) {
     if (data) {
       const updatedBlocks = timeBlocks.map(b => b.id === blockId ? data : b)
       setTimeBlocks(updatedBlocks)
-
-      if (rate) {
-        const totalPlayFee = isFreetime(pricingType)
-          ? (rate.freetime_price || 0)
-          : updatedBlocks.filter(b => b.ended_at).reduce((sum, b) => sum + calcCompletedBlockFee(b), 0)
-        await supabase.from('sessions').update({ total_play_fee: totalPlayFee }).eq('id', sessionId)
-      }
+      await persistCompletedPlayFee(updatedBlocks)
     }
   }
 
@@ -175,8 +166,7 @@ export function useTimeBlocks(sessionId, pricingType, rate) {
       update.ended_at = newEnd || block.ended_at
       // フリータイムブロック（locked_fee===null）はNULLのまま。時間制ブロックは再計算
       if (!isFreetime(pricingType) && block.locked_fee !== null && rate) {
-        const mins = Math.floor((new Date(update.ended_at) - new Date(newStart)) / 60000)
-        update.locked_fee = mins > 0 ? roundUp50((rate.price_per_minute || 0) * mins) : 0
+        update.locked_fee = calcHourlyFee(newStart, update.ended_at, rate)
       }
     }
 
@@ -185,11 +175,8 @@ export function useTimeBlocks(sessionId, pricingType, rate) {
     setTimeBlocks(updatedBlocks)
     setEditingBlockId(null)
 
-    if (block.ended_at && rate) {
-      const totalPlayFee = isFreetime(pricingType)
-        ? (rate.freetime_price || 0)
-        : updatedBlocks.filter(b => b.ended_at).reduce((sum, b) => sum + calcCompletedBlockFee(b), 0)
-      await supabase.from('sessions').update({ total_play_fee: totalPlayFee }).eq('id', sessionId)
+    if (block.ended_at) {
+      await persistCompletedPlayFee(updatedBlocks)
     }
   }
 
@@ -208,6 +195,5 @@ export function useTimeBlocks(sessionId, pricingType, rate) {
     openEditBlock,
     saveEditBlock,
     cancelEdit: () => setEditingBlockId(null),
-    calcBlockFee,
   }
 }

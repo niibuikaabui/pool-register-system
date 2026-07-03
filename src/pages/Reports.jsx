@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { TYPE_LABEL, isFreetime } from '../lib/constants'
-import { roundUp50 } from '../lib/utils'
+import { calcCompletedBlockFee } from '../lib/fees'
 
 function toLocalDateStr(dt) {
   const y = dt.getFullYear()
@@ -204,13 +204,9 @@ export default function Reports() {
       supabase.from('pricing_master').select('*').eq('customer_type', s.customer_type).eq('pricing_type', s.pricing_type),
     ])
     const rate = pricing?.[0]
-    const calcBlockFee = (block) => {
-      if (isFreetime(s.pricing_type)) return null
-      const ended = block.ended_at ? new Date(block.ended_at) : new Date()
-      const mins = Math.floor((ended - new Date(block.started_at)) / 60000)
-      if (mins <= 0) return 0
-      return roundUp50((rate?.price_per_minute || 0) * mins)
-    }
+    // フリータイムは金額表示なし。時間制は locked_fee（確定額）優先、無ければタイムスタンプから再計算
+    const calcBlockFee = (block) =>
+      isFreetime(s.pricing_type) ? null : calcCompletedBlockFee(block, s.pricing_type, rate)
     const history = [
       ...(blocks || []).map(b => ({ type: 'block', sortTime: new Date(b.started_at), startTime: b.started_at, endTime: b.ended_at, fee: calcBlockFee(b) })),
       ...(orders || []).map(o => ({ type: 'order', sortTime: new Date(o.created_at || s.started_at), name: o.menu_items?.name, category: o.menu_items?.category, quantity: o.quantity, fee: o.unit_price * o.quantity, cancelled: !!o.cancelled_at })),

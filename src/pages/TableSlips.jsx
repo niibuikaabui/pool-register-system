@@ -3,7 +3,9 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 import { TYPE_LABEL, PRICING_LABEL, FREETIME_MINUTES, isFreetime } from '../lib/constants'
-import { fmtElapsed, freeTimeRemaining, freeTimeBadge, roundUp50 } from '../lib/utils'
+import { fmtElapsed, freeTimeRemaining, freeTimeBadge } from '../lib/utils'
+import { findRate, calcHourlyFee, calcFoodFee } from '../lib/fees'
+import { createSlip, moveSlipToTable, endActiveBlocks, persistSessionTotals, buildPlayStateMaps } from '../lib/sessionOps'
 import TableMoveModal from '../components/TableMoveModal'
 
 
@@ -26,15 +28,8 @@ export default function TableSlips() {
 
   async function addSlip() {
     setCreating(true)
-    const { data, error } = await supabase.from('sessions').insert({
-      table_id: tableId,
-      customer_type: 'general',
-      pricing_type: 'hourly_multi',
-      started_at: new Date().toISOString(),
-      is_paid: false,
-    }).select().single()
+    const { data, error } = await createSlip(tableId)
     if (error) { alert('伝票作成エラー: ' + error.message); setCreating(false); return }
-    await supabase.from('tables').update({ status: 'in_use' }).eq('id', tableId)
     navigate(`/checkout/${data.id}?table=${tableId}`)
   }
 
@@ -71,18 +66,12 @@ export default function TableSlips() {
     setTable(tbl)
     setPricing(p || [])
     setAllTables(tbls || [])
-    const playingIds = new Set((activeBlocks || []).map(b => b.session_id))
-    const playingStart = Object.fromEntries((activeBlocks || []).map(b => [b.session_id, b.started_at]))
-    // フリータイム開始時刻（最初のブロック）
-    const freetimeStartMap = {}
-    ;(firstBlocks || []).forEach(b => {
-      if (!freetimeStartMap[b.session_id]) freetimeStartMap[b.session_id] = b.started_at
-    })
+    const { playingStart, firstStart } = buildPlayStateMaps(activeBlocks, firstBlocks)
     setSlips((sess || []).map(s => ({
       ...s,
-      isPlaying: playingIds.has(s.id),
+      isPlaying: s.id in playingStart,
       playStartedAt: playingStart[s.id] || null,
-      freetimeStartedAt: freetimeStartMap[s.id] || null,
+      freetimeStartedAt: firstStart[s.id] || null,
     })))
     setLoading(false)
   }
@@ -91,15 +80,14 @@ export default function TableSlips() {
   const _tick = tick
 
   function calcSlipFee(slip) {
-    const foodFee = (slip.order_items || []).filter(o => !o.cancelled_at).reduce((a, o) => a + o.unit_price * o.quantity, 0)
-    const rate = pricing.find(p => p.customer_type === slip.customer_type && p.pricing_type === slip.pricing_type)
+    const foodFee = calcFoodFee(slip.order_items)
+    const rate = findRate(pricing, slip.customer_type, slip.pricing_type)
     let playFee = slip.total_play_fee || 0
     if (slip.isPlaying && slip.playStartedAt && rate) {
       if (isFreetime(slip.pricing_type)) {
         playFee = rate.freetime_price || 0
       } else {
-        const mins = Math.floor((new Date() - new Date(slip.playStartedAt)) / 60000)
-        playFee += roundUp50((rate.price_per_minute || 0) * mins)
+        playFee += calcHourlyFee(slip.playStartedAt, new Date(), rate)
       }
     }
     return { playFee, foodFee, total: playFee + foodFee }
@@ -112,50 +100,11 @@ export default function TableSlips() {
     setEndingPlay(true)
     const now = new Date().toISOString()
 
+    // ブロック終了（locked_fee確定）→ 料金再計算して保存
     await Promise.all(playingSlips.map(async slip => {
-      // アクティブなブロックを終了
-      const { data: activeBlock } = await supabase
-        .from('time_blocks')
-        .update({ ended_at: now })
-        .eq('session_id', slip.id)
-        .is('ended_at', null)
-        .select()
-        .single()
-
-      // 全ブロック取得して料金計算
-      const { data: allBlocks } = await supabase
-        .from('time_blocks')
-        .select('*')
-        .eq('session_id', slip.id)
-
-      const rate = pricing.find(p => p.customer_type === slip.customer_type && p.pricing_type === slip.pricing_type)
-      let totalPlayFee = 0
-      if (rate) {
-        if (isFreetime(slip.pricing_type)) {
-          totalPlayFee = rate.freetime_price || 0
-        } else {
-          totalPlayFee = (allBlocks || []).reduce((sum, b) => {
-            const ended = b.ended_at ? new Date(b.ended_at) : new Date(now)
-            const mins = Math.floor((ended - new Date(b.started_at)) / 60000)
-            if (mins <= 0) return sum
-            return sum + roundUp50((rate.price_per_minute || 0) * mins)
-          }, 0)
-        }
-      }
-
-      // セッションの料金を更新
-      const { data: orderData } = await supabase
-        .from('order_items')
-        .select('unit_price, quantity')
-        .eq('session_id', slip.id)
-        .is('cancelled_at', null)
-      const foodFee = (orderData || []).reduce((sum, o) => sum + o.unit_price * o.quantity, 0)
-
-      await supabase.from('sessions').update({
-        total_play_fee: totalPlayFee,
-        total_food_fee: foodFee,
-        grand_total: totalPlayFee + foodFee,
-      }).eq('id', slip.id)
+      const rate = findRate(pricing, slip.customer_type, slip.pricing_type)
+      await endActiveBlocks(slip.id, slip.pricing_type, rate, now)
+      await persistSessionTotals(slip.id, slip.pricing_type, rate)
     }))
 
     setEndingPlay(false)
@@ -164,17 +113,7 @@ export default function TableSlips() {
 
   async function handleMoveTable(newTableId) {
     if (!movingSlip) return
-    // 選択した伝票を新しい台に移動
-    await supabase.from('sessions').update({ table_id: newTableId }).eq('id', movingSlip.id)
-    // 新しい台を使用中に
-    await supabase.from('tables').update({ status: 'in_use' }).eq('id', newTableId)
-    // 元の台に残伝票がなければ空きに
-    const { data: remaining } = await supabase
-      .from('sessions').select('id')
-      .eq('table_id', tableId).eq('is_paid', false).neq('id', movingSlip.id)
-    if (!remaining || remaining.length === 0) {
-      await supabase.from('tables').update({ status: 'empty' }).eq('id', tableId)
-    }
+    await moveSlipToTable(movingSlip.id, tableId, newTableId)
     setMovingSlip(null)
     await fetchData()
   }
@@ -183,8 +122,8 @@ export default function TableSlips() {
     setBulkPaying(true)
     const now = new Date().toISOString()
     await Promise.all(slips.map(async slip => {
-      const { data: orderData } = await supabase.from('order_items').select('unit_price, quantity').eq('session_id', slip.id).is('cancelled_at', null)
-      const foodFee = (orderData || []).reduce((sum, o) => sum + o.unit_price * o.quantity, 0)
+      const { data: orderData } = await supabase.from('order_items').select('unit_price, quantity, cancelled_at').eq('session_id', slip.id).is('cancelled_at', null)
+      const foodFee = calcFoodFee(orderData)
       const playFee = slip.total_play_fee || 0
       await supabase.from('sessions').update({
         ended_at: slip.ended_at || now,
@@ -204,26 +143,11 @@ export default function TableSlips() {
     setBulkPaying(true)
     const now = new Date().toISOString()
 
-    // プレー終了＋料金確定
+    // プレー終了（locked_fee確定）＋料金確定
     await Promise.all(slips.filter(s => s.isPlaying).map(async slip => {
-      await supabase.from('time_blocks').update({ ended_at: now }).eq('session_id', slip.id).is('ended_at', null)
-      const { data: allBlocks } = await supabase.from('time_blocks').select('*').eq('session_id', slip.id)
-      const rate = pricing.find(p => p.customer_type === slip.customer_type && p.pricing_type === slip.pricing_type)
-      let totalPlayFee = 0
-      if (rate) {
-        if (isFreetime(slip.pricing_type)) {
-          totalPlayFee = rate.freetime_price || 0
-        } else {
-          totalPlayFee = (allBlocks || []).reduce((sum, b) => {
-            const ended = b.ended_at ? new Date(b.ended_at) : new Date(now)
-            const mins = Math.floor((ended - new Date(b.started_at)) / 60000)
-            return mins > 0 ? sum + roundUp50((rate.price_per_minute || 0) * mins) : sum
-          }, 0)
-        }
-      }
-      const { data: orderData } = await supabase.from('order_items').select('unit_price, quantity').eq('session_id', slip.id).is('cancelled_at', null)
-      const foodFee = (orderData || []).reduce((sum, o) => sum + o.unit_price * o.quantity, 0)
-      await supabase.from('sessions').update({ total_play_fee: totalPlayFee, total_food_fee: foodFee, grand_total: totalPlayFee + foodFee, checked_by: user?.id || null }).eq('id', slip.id)
+      const rate = findRate(pricing, slip.customer_type, slip.pricing_type)
+      await endActiveBlocks(slip.id, slip.pricing_type, rate, now)
+      await persistSessionTotals(slip.id, slip.pricing_type, rate, { checked_by: user?.id || null })
     }))
 
     // 全伝票を会計済みに
