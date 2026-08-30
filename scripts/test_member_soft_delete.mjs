@@ -6,11 +6,18 @@ const BASE = 'http://localhost:5173/pool-register-system'
 const SS = 'C:/Users/bravy/AppData/Local/Temp/claude/c--claude-cowork-pool-register-system/b48c8450-65da-4f77-a359-ad5def40f0d6/scratchpad'
 const TEST_NAME = 'テスト削除会員_' + Date.now()
 
+const EMAIL = process.env.TEST_EMAIL
+const PASSWORD = process.env.TEST_PASSWORD
+if (!EMAIL || !PASSWORD) {
+  console.error('TEST_EMAIL と TEST_PASSWORD を環境変数にセットしてください')
+  process.exit(1)
+}
+
 const sb = createClient(
   'https://ggedrhvdqpaorkklpdcw.supabase.co',
   'sb_publishable_H7MJN92bB-MSusBPrvBpMQ_hWprganl'
 )
-const { error: le } = await sb.auth.signInWithPassword({ email: 'bravy123@hotmail.com', password: 'bravy123@hotmail.com' })
+const { error: le } = await sb.auth.signInWithPassword({ email: EMAIL, password: PASSWORD })
 if (le) { console.error('DBログインエラー:', le.message); process.exit(1) }
 
 let ok = true
@@ -31,8 +38,8 @@ try {
   await page.goto(BASE + '/#/')
   await page.waitForTimeout(1500)
   if (await page.locator('input[type="password"]').count()) {
-    await page.fill('input[type="email"], input[placeholder*="mail"]', 'bravy123@hotmail.com')
-    await page.fill('input[type="password"]', 'bravy123@hotmail.com')
+    await page.fill('input[type="email"], input[placeholder*="mail"]', EMAIL)
+    await page.fill('input[type="password"]', PASSWORD)
     await page.locator('button:has-text("ログイン")').click()
     await page.waitForTimeout(2000)
   }
