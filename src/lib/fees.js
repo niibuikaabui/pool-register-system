@@ -21,15 +21,17 @@ export function calcHourlyFee(startedAt, endedAt, rate) {
   return roundUp50((rate?.price_per_minute || 0) * mins)
 }
 
-// ブロック1件の料金をタイムスタンプから計算（アクティブブロックの概算・locked_fee未設定時のフォールバック用）
+// アクティブブロックの概算料金をタイムスタンプから計算（プレー中の現在時刻ベース見積もり専用）
 export function calcBlockFee(block, pricingType, rate, now = new Date()) {
   if (!rate || isFreetime(pricingType)) return 0
   return calcHourlyFee(block.started_at, block.ended_at || now, rate)
 }
 
-// 完了ブロックの料金: locked_fee優先、NULL（フリータイム・旧データ・レート未ロード時）は再計算
-export function calcCompletedBlockFee(block, pricingType, rate, now) {
-  return block.locked_fee != null ? block.locked_fee : calcBlockFee(block, pricingType, rate, now)
+// 完了ブロックの料金: locked_fee優先。NULL（フリータイム・旧データ）は0円として扱う。
+// ※ 終了後に区分・種別が変更されると「終了時点で本当にフリータイムだったか」は判別できないため、
+//   タイムスタンプからの再計算は行わない（誤って現在の種別で時間制課金してしまうのを防ぐ）。
+export function calcCompletedBlockFee(block) {
+  return block.locked_fee ?? 0
 }
 
 // ブロック終了時にDBへ確定する locked_fee（フリータイム・レート未確定時はNULL）
@@ -43,7 +45,7 @@ export function calcSessionPlayFee(blocks, pricingType, rate, now = new Date()) 
   if (!rate) return 0
   if (isFreetime(pricingType)) return rate.freetime_price || 0
   return (blocks || []).reduce((sum, b) => sum + (b.ended_at
-    ? calcCompletedBlockFee(b, pricingType, rate, now)
+    ? calcCompletedBlockFee(b)
     : calcBlockFee(b, pricingType, rate, now)), 0)
 }
 

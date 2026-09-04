@@ -57,7 +57,7 @@ export function useTimeBlocks(sessionId, pricingType, rate) {
   }
 
   function calcCompletedFee(block) {
-    return calcCompletedBlockFee(block, pricingType, rate)
+    return calcCompletedBlockFee(block)
   }
 
   const playFee = calcSessionPlayFee(timeBlocks, pricingType, rate)
@@ -138,7 +138,10 @@ export function useTimeBlocks(sessionId, pricingType, rate) {
     setEditingBlockId(block.id)
   }
 
-  async function saveEditBlock(block) {
+  async function saveEditBlock(passedBlock) {
+    // OrderHistory から渡される block は表示用に id/started_at/ended_at のみを持つ整形済みオブジェクトで
+    // locked_fee を含まない（undefined になる）ため、timeBlocks から元データを引き直す
+    const block = timeBlocks.find(b => b.id === passedBlock.id) || passedBlock
     const newStart = new Date(`${editStartDate}T${editStartTime}`).toISOString()
     const newEnd = (editEndDate && editEndTime) ? new Date(`${editEndDate}T${editEndTime}`).toISOString() : null
 

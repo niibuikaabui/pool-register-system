@@ -198,15 +198,13 @@ export default function Reports() {
     setModalSession(s)
     setModalHistory([])
     setModalLoading(true)
-    const [{ data: blocks }, { data: orders }, { data: pricing }] = await Promise.all([
+    const [{ data: blocks }, { data: orders }] = await Promise.all([
       supabase.from('time_blocks').select('*').eq('session_id', s.id).order('started_at'),
       supabase.from('order_items').select('*, menu_items(name, category)').eq('session_id', s.id).order('id'),
-      supabase.from('pricing_master').select('*').eq('customer_type', s.customer_type).eq('pricing_type', s.pricing_type),
     ])
-    const rate = pricing?.[0]
-    // フリータイムは金額表示なし。時間制は locked_fee（確定額）優先、無ければタイムスタンプから再計算
+    // フリータイムは金額表示なし。時間制は locked_fee（確定額）優先、無ければ0円
     const calcBlockFee = (block) =>
-      isFreetime(s.pricing_type) ? null : calcCompletedBlockFee(block, s.pricing_type, rate)
+      isFreetime(s.pricing_type) ? null : calcCompletedBlockFee(block)
     const history = [
       ...(blocks || []).map(b => ({ type: 'block', sortTime: new Date(b.started_at), startTime: b.started_at, endTime: b.ended_at, fee: calcBlockFee(b) })),
       ...(orders || []).map(o => ({ type: 'order', sortTime: new Date(o.created_at || s.started_at), name: o.menu_items?.name, category: o.menu_items?.category, quantity: o.quantity, fee: o.unit_price * o.quantity, cancelled: !!o.cancelled_at })),
