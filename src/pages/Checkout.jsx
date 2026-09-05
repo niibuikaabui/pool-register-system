@@ -278,6 +278,7 @@ export default function Checkout() {
         customerType={customerType}
         pricingType={pricingType}
         activeBlock={tb.activeBlock}
+        loading={tb.loading}
         editingBlockId={tb.editingBlockId}
         rate={rate}
         editStartDate={tb.editStartDate}

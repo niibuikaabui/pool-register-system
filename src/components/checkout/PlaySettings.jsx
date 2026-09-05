@@ -4,7 +4,7 @@ import TimeBlockEditForm from './TimeBlockEditForm'
 
 export default function PlaySettings({
   customerType, pricingType,
-  activeBlock, editingBlockId,
+  activeBlock, loading, editingBlockId,
   rate,
   editStartDate, setEditStartDate,
   editStartTime, setEditStartTime,
@@ -12,6 +12,8 @@ export default function PlaySettings({
   onStartBlock, onEndBlock,
   onOpenEdit, onSaveEdit, onCancelEdit,
 }) {
+  // プレー中の区分変更は行わない運用のため、プレー中（および time_blocks 読み込み中）は区分・種別ともに操作不可にする
+  const isPlayLocked = loading || !!activeBlock
   return (
     <div className="bg-white rounded-xl shadow-sm p-4 mb-3">
       <h2 className="font-semibold text-gray-700 mb-3">プレー設定</h2>
@@ -24,10 +26,11 @@ export default function PlaySettings({
             {['general', 'female', 'university', 'high_school', 'staff'].map(t => (
               <button
                 key={t}
-                onClick={() => onCustomerTypeChange(t)}
+                onClick={() => { if (!isPlayLocked) onCustomerTypeChange(t) }}
+                disabled={isPlayLocked}
                 className={`flex-1 py-2 rounded-lg text-sm font-medium border ${
                   customerType === t ? 'bg-green-700 text-white border-green-700' : 'border-gray-300 text-gray-700'
-                }`}
+                } ${isPlayLocked ? 'opacity-30 cursor-not-allowed' : ''}`}
               >
                 {TYPE_LABEL[t]}
               </button>
@@ -39,7 +42,7 @@ export default function PlaySettings({
           <div className="grid grid-cols-2 gap-1">
             {['hourly_multi', 'hourly_single', 'freetime_beer', 'freetime_no_beer'].map(v => {
               const disabledFreetime = isFreetime(v) && (customerType === 'high_school' || customerType === 'staff')
-              const isDisabled = !!activeBlock || disabledFreetime
+              const isDisabled = isPlayLocked || disabledFreetime
               return (
                 <button
                   key={v}

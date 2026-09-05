@@ -12,6 +12,7 @@ import {
 
 export function useTimeBlocks(sessionId, pricingType, rate) {
   const [timeBlocks, setTimeBlocks] = useState([])
+  const [loading, setLoading] = useState(true)
   const [tick, setTick] = useState(0)
   const [editingBlockId, setEditingBlockId] = useState(null)
   const [editStartDate, setEditStartDate] = useState('')
@@ -27,6 +28,7 @@ export function useTimeBlocks(sessionId, pricingType, rate) {
 
   useEffect(() => {
     if (!sessionId) return
+    setLoading(true)
     loadTimeBlocks()
     const channel = supabase
       .channel(`checkout-timeblocks-${sessionId}`)
@@ -42,6 +44,7 @@ export function useTimeBlocks(sessionId, pricingType, rate) {
       .eq('session_id', sessionId)
       .order('started_at')
     setTimeBlocks(data || [])
+    setLoading(false)
   }
 
   // eslint-disable-next-line no-unused-vars
@@ -184,6 +187,7 @@ export function useTimeBlocks(sessionId, pricingType, rate) {
   }
 
   return {
+    loading,
     activeBlock,
     completedBlocks,
     playFee,
