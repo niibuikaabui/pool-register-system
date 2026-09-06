@@ -143,17 +143,21 @@ export default function TableSlips() {
     setBulkPaying(true)
     const now = new Date().toISOString()
 
-    // プレー終了（locked_fee確定）＋料金確定
+    // プレー中の伝票のみアクティブブロックを終了（locked_fee確定）
     await Promise.all(slips.filter(s => s.isPlaying).map(async slip => {
       const rate = findRate(pricing, slip.customer_type, slip.pricing_type)
       await endActiveBlocks(slip.id, slip.pricing_type, rate, now)
-      await persistSessionTotals(slip.id, slip.pricing_type, rate, { checked_by: user?.id || null })
     }))
 
-    // 全伝票を会計済みに
-    await Promise.all(slips.map(slip =>
-      supabase.from('sessions').update({ ended_at: slip.ended_at || now, is_paid: true }).eq('id', slip.id)
-    ))
+    // 全伝票（プレー中だったか否かに関わらず）の金額を確定し、会計済みにする
+    await Promise.all(slips.map(async slip => {
+      const rate = findRate(pricing, slip.customer_type, slip.pricing_type)
+      await persistSessionTotals(slip.id, slip.pricing_type, rate, {
+        ended_at: slip.ended_at || now,
+        is_paid: true,
+        checked_by: user?.id || null,
+      })
+    }))
     await supabase.from('tables').update({ status: 'empty', note: null }).eq('id', tableId)
     setBulkPaying(false)
     navigate('/')

@@ -1,12 +1,11 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
-import { isFreetime } from '../lib/constants'
 import { toLocalDatetimeInput } from '../lib/utils'
 import {
   calcBlockFee as calcBlockFeeBase,
   calcCompletedBlockFee,
   calcHourlyFee,
-  calcLockedFee,
+  calcLockedBlock,
   calcSessionPlayFee,
 } from '../lib/fees'
 
@@ -72,8 +71,8 @@ export function useTimeBlocks(sessionId, pricingType, rate) {
       id: b.id,
       startTime: b.started_at,
       endTime: b.ended_at,
-      // locked_fee===null かつ現在フリータイム → フリータイムブロックとして表示
-      isLockedFreetime: b.locked_fee === null && isFreetime(pricingType),
+      // 終了時点でフリータイムだったブロックはバッジ表示（現在の種別には依存しない）
+      isLockedFreetime: !!b.is_freetime,
       fee: calcCompletedFee(b),
       isActive: false,
     })),
@@ -109,12 +108,15 @@ export function useTimeBlocks(sessionId, pricingType, rate) {
     const endedAt = new Date().toISOString()
     const block = timeBlocks.find(b => b.id === blockId)
 
-    // フリータイムはlocked_fee=NULL、時間制は計算値（rateが未ロードの場合もNULL→UI側でフォールバック計算）
-    const lockedFee = block ? calcLockedFee(block.started_at, endedAt, pricingType, rate) : null
+    // フリータイムは freetime_price を確定額として保存、時間制は計算値
+    const { locked_fee, is_freetime } = block
+      ? calcLockedBlock(block.started_at, endedAt, pricingType, rate)
+      : { locked_fee: null, is_freetime: false }
 
     const { data } = await supabase.from('time_blocks').update({
       ended_at: endedAt,
-      locked_fee: lockedFee,
+      locked_fee,
+      is_freetime,
     }).eq('id', blockId).select().single()
 
     if (data) {
@@ -170,8 +172,8 @@ export function useTimeBlocks(sessionId, pricingType, rate) {
     const update = { started_at: newStart }
     if (block.ended_at) {
       update.ended_at = newEnd || block.ended_at
-      // フリータイムブロック（locked_fee===null）はNULLのまま。時間制ブロックは再計算
-      if (!isFreetime(pricingType) && block.locked_fee !== null && rate) {
+      // フリータイムブロック（is_freetime=true）は確定額のまま変えない。時間制ブロックのみ再計算
+      if (!block.is_freetime && rate) {
         update.locked_fee = calcHourlyFee(newStart, update.ended_at, rate)
       }
     }

@@ -1,5 +1,5 @@
 import { supabase } from './supabase'
-import { calcLockedFee, calcSessionPlayFee, calcFoodFee } from './fees'
+import { calcLockedBlock, calcSessionPlayFee, calcFoodFee } from './fees'
 
 // ─────────────────────────────────────────────────────────────
 // 伝票・台・時間ブロックに対する定型DB操作の共通モジュール
@@ -41,17 +41,15 @@ export async function moveSlipToTable(sessionId, oldTableId, newTableId) {
   await releaseTableIfNoUnpaid(oldTableId, sessionId)
 }
 
-// 進行中の時間ブロックを終了し、時間制なら locked_fee を確定する
+// 進行中の時間ブロックを終了し、locked_fee・is_freetime を確定する
 export async function endActiveBlocks(sessionId, pricingType, rate, endedAt = new Date().toISOString()) {
   const { data: actives } = await supabase
     .from('time_blocks').select('id, started_at')
     .eq('session_id', sessionId).is('ended_at', null)
-  await Promise.all((actives || []).map(b =>
-    supabase.from('time_blocks').update({
-      ended_at: endedAt,
-      locked_fee: calcLockedFee(b.started_at, endedAt, pricingType, rate),
-    }).eq('id', b.id)
-  ))
+  await Promise.all((actives || []).map(b => {
+    const { locked_fee, is_freetime } = calcLockedBlock(b.started_at, endedAt, pricingType, rate)
+    return supabase.from('time_blocks').update({ ended_at: endedAt, locked_fee, is_freetime }).eq('id', b.id)
+  }))
   return actives || []
 }
 

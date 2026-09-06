@@ -7,6 +7,10 @@ import { roundUp50 } from './utils'
 //   - 時間制: 分未満切り捨て → price_per_minute × 分 → 50円単位切り上げ
 //   - フリータイム: freetime_price の定額
 //   - 完了ブロックは locked_fee（終了時に確定した金額）を最優先で使う
+//   - 1伝票の中で種別（時間制⇔フリータイム）を跨いで遊ぶケースがあるため、
+//     ブロックごとに「終了時点でフリータイムだったか」を is_freetime 列に保存し、
+//     完了ブロックは常にその確定額（locked_fee）をそのまま合算する。
+//     「現在の種別」でセッション全体の計算方式を切り替えることはしない。
 // ─────────────────────────────────────────────────────────────
 
 // 区分×種別に対応する料金マスタ行を返す
@@ -34,16 +38,20 @@ export function calcCompletedBlockFee(block) {
   return block.locked_fee ?? 0
 }
 
-// ブロック終了時にDBへ確定する locked_fee（フリータイム・レート未確定時はNULL）
-export function calcLockedFee(startedAt, endedAt, pricingType, rate) {
-  if (isFreetime(pricingType) || !rate) return null
-  return calcHourlyFee(startedAt, endedAt, rate)
+// ブロック終了時にDBへ確定する { locked_fee, is_freetime }。
+// フリータイムは freetime_price をそのまま確定額として保存する（NULLにしない）。
+// これにより、終了後に種別が変わっても「このブロックが確定した時点の実態」を復元できる。
+export function calcLockedBlock(startedAt, endedAt, pricingType, rate) {
+  if (isFreetime(pricingType)) {
+    return { locked_fee: rate?.freetime_price ?? null, is_freetime: true }
+  }
+  if (!rate) return { locked_fee: null, is_freetime: false }
+  return { locked_fee: calcHourlyFee(startedAt, endedAt, rate), is_freetime: false }
 }
 
-// セッションのプレー料金合計（フリータイムは定額、時間制は完了＋アクティブブロックの合算）
+// セッションのプレー料金合計: 完了ブロックは確定額（locked_fee）をそのまま合算し、
+// アクティブブロックのみ現在の種別でリアルタイム概算する
 export function calcSessionPlayFee(blocks, pricingType, rate, now = new Date()) {
-  if (!rate) return 0
-  if (isFreetime(pricingType)) return rate.freetime_price || 0
   return (blocks || []).reduce((sum, b) => sum + (b.ended_at
     ? calcCompletedBlockFee(b)
     : calcBlockFee(b, pricingType, rate, now)), 0)
