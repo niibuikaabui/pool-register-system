@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { createClient } from '@supabase/supabase-js'
-import { supabase, SUPABASE_URL, SUPABASE_ANON_KEY } from '../lib/supabase'
+import { supabase } from '../lib/supabase'
 import { TYPE_LABEL, PRICING_LABEL, CATEGORY_ICON, CATEGORY_LABEL, isFreetime } from '../lib/constants'
 
 const EMPTY_USER_FORM = { name: '', email: '', password: '', role: 'staff' }
@@ -305,12 +304,15 @@ export default function Master() {
     } else {
       if (!userForm.email.trim()) { setUserError('メールアドレスを入力してください'); setSaving(false); return }
       if (userForm.password.length < 6) { setUserError('パスワードは6文字以上で入力してください'); setSaving(false); return }
-      // 管理者のセッションを維持するため別インスタンスで登録
-      const tempClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, { auth: { persistSession: false } })
-      const { data, error: signUpError } = await tempClient.auth.signUp({ email: userForm.email.trim(), password: userForm.password })
-      if (signUpError) { setUserError('登録エラー: ' + signUpError.message); setSaving(false); return }
-      const { error: profileError } = await supabase.from('user_profiles').insert({ id: data.user.id, name: userForm.name.trim(), role: userForm.role, email: userForm.email.trim() })
-      if (profileError) { setUserError('プロフィール登録エラー: ' + profileError.message); setSaving(false); return }
+      // サインアップは無効化しているため、管理者専用の Edge Function で作成する
+      const { error } = await supabase.functions.invoke('create-user', {
+        body: { name: userForm.name.trim(), email: userForm.email.trim(), password: userForm.password, role: userForm.role },
+      })
+      if (error) {
+        let message = error.message
+        try { message = (await error.context.json()).error || message } catch { /* レスポンス本文なし */ }
+        setUserError('登録エラー: ' + message); setSaving(false); return
+      }
     }
 
     setShowUserForm(false)

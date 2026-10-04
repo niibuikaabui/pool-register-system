@@ -16,6 +16,19 @@ Supabase Dashboard の **SQL Editor** で `supabase_setup.sql` を実行して�
    insert into user_profiles (id, name, role) values ('YOUR_USER_ID', '管理者名', 'admin');
    ```
 
+### 1-2. ユーザー登録用 Edge Function のデプロイ
+
+新規サインアップ（Authentication > Sign In / Providers > 「Allow new users to sign up」）は **OFF** のまま運用します。
+マスタ管理画面からのユーザー登録は、管理者だけが呼び出せる Edge Function `create-user` で行います。
+
+```bash
+npx supabase login
+npx supabase link --project-ref ggedrhvdqpaorkklpdcw
+npx supabase functions deploy create-user --no-verify-jwt
+```
+
+※ 呼び出し元のトークンと管理者権限は関数内で確認しています。`SUPABASE_SERVICE_ROLE_KEY` などは Supabase が自動で設定します。
+
 ### 2. ローカル開発
 
 Node.js (v18以上) が必要です。
